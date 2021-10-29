@@ -32,6 +32,54 @@ def oddr_to_pseudo_hex(col, row):
 	return  int(x_vis), int(y_vis)
 
 
+######## VISIUM ANNOTATION PROCESSING #######
+
+# Convert Loupe annotation files (barcode, AAR pairs) to Splotch annotation files (AARs x spots matrix).
+# Splotch does this conversion under the hood -- for now, GridNext expects Splotch formatted inputs.
+def to_splotch_annots(loupe_annotations, tpl_files, dest_dir, include_annots=None):
+	'''
+	Parameters:
+	----------
+	loupe_annotations: iterable of path
+		paths to Loupe annotation files
+	tpl_files: iterable of path
+		paths to tissue_position_list.csv files output by spaceranger for tissues specified in loupe_annotations.
+	dest_dir: path
+		directory in which to save Splotch-formatted annotation files.
+	include_annots: list of str or None
+		ordered list of annotations to include in Splotch files.
+		If None, all annotations found across Loupe files will be included in alphanumeric order.
+	'''
+	
+	# If annotations not provided, extract list of all unique annotations across provided files.
+	if include_annots is None:
+		annot_list = []
+		for afile in loupe_annotations:
+			adat = pd.read_csv(afile, header=0, sep=',')
+			keep_inds = [isinstance(a, str) and len(a) > 0 and a.lower() != 'undefined' for a in adat[adat.columns[1]]]
+			annot_list.append(adat[adat.columns[1]][keep_inds])
+		include_annots = list(np.unique(np.concatenate(annot_list)))
+
+	for afile, tfile in zip(loupe_annotations, tpl_files):
+		annots = pd.read_csv(afile, header=0, sep=",")
+		positions = pd.read_csv(tfile, index_col=0, header=None,
+			names=["in_tissue", "array_row", "array_col", "pixel_row", "pixel_col"])
+		annot_matrix = np.zeros((len(include_annots), len(annots['Barcode'])), dtype=int)
+
+		positions_list = []
+		for i,b in enumerate(annots['Barcode']):
+			xcoor = positions.loc[b,'array_col']
+			ycoor = positions.loc[b,'array_row']
+			positions_list.append('%d_%d' % (xcoor, ycoor))
+
+			if annots.iloc[i,1] in include_annots:
+				annot_matrix[include_annots.index(annots.iloc[i,1]),i] = 1
+
+		splotch_frame = pd.DataFrame(annot_matrix, index=include_annots, columns=positions_list)
+		outfile = os.path.join(dest_dir, Path(afile).name).replace('csv', 'tsv')
+		splotch_frame.to_csv(outfile, sep='\t')
+
+
 ######## VISIUM IMAGE PROCESSING ########
 
 # Extracts image patches centered at each Visium spot and returns as a 5D tensor for input to GridNet.
@@ -164,9 +212,14 @@ if __name__ == '__main__':
 	#res = grid_from_wsi_visium(wsi_file, tpl_file)
 	#print(res.max())
 
-	dest_dir = '/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/maynard_patchdata_oddr/'
-	wsi_files = sorted(glob.glob('/Users/adaly/Desktop/Visium/Maynard_ImageData/*_full_image.tif'))
-	tpl_files = sorted(glob.glob('/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/Spaceranger_simulated/*_tissue_positions_list.csv'))
+	#dest_dir = '/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/maynard_patchdata_oddr/'
+	#wsi_files = sorted(glob.glob('/Users/adaly/Desktop/Visium/Maynard_ImageData/*_full_image.tif'))
+	#tpl_files = sorted(glob.glob('/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/Spaceranger_simulated/*_tissue_positions_list.csv'))
+	#save_visium_patches(wsi_files, tpl_files, dest_dir)
 
-	save_visium_patches(wsi_files, tpl_files, dest_dir)
+	data_dir = '/mnt/home/adaly/ceph/datasets/BA44/'
+	meta = pd.read_csv(os.path.join(data_dir, 'Splotch_Metadata.tsv'), header=0, sep='\t')
+	tpl_files = [os.path.join(data_dir, srd + '/outs/spatial/tissue_positions_list.csv') for srd in meta['Spaceranger output']]
+	annot_files = [os.path.join(data_dir, afile) for afile in meta['Annotation file']]
+	to_splotch_annots(annot_files, tpl_files, os.path.join(data_dir, 'annotations_splotch'))
 
