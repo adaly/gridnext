@@ -4,6 +4,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, TensorDataset
 
+from utils import pseudo_hex_to_oddr, read_annotated_starray
+
 
 ############### Read full datasets into memory ###############
 
@@ -162,71 +164,3 @@ class CountGridDataset(Dataset):
         annots_grid = torch.from_numpy(annots_grid)
         
         return counts_grid.float(), annots_grid.long()
-
-
-############### Helper functions ###############
-
-# Convert from pseudo-hex indexing scheme used by Visium to "odd-right" hexagonal indexing
-# (odd-numbered rows are implicitly shifted one half-unit right; vertical axis implicitly scaled by sqrt(3)/2)
-def pseudo_hex_to_oddr(col, row):
-    if col % 2 == 0:
-        x = col/2
-    else:
-        x = (col-1)/2
-    y = row
-    return int(x), int(y)
-
-# Read paired count and annotation files and populate input/label ndarrays for GridNet.
-def read_annotated_starray(count_file, annot_file, select_genes=None, 
-    h_st=78, w_st=64, Visium=True, cfile_delim='\t', afile_delim='\t'):
-    '''
-    Parameters:
-    ----------
-    count_file: path
-        path to Splotch-formatted count file -- tab-delimited, (genes x spots).
-    annot_file: path
-        path to Splotch-formatted annotation file -- tab-delimited, one-hot encoding (annotations x spots).
-    filter_genes: iterable of str
-        list of gene names to include, or None to include all.
-    h_st: int
-        number of rows in ST array.
-    w_st: int
-        number of columns in ST array.
-    Visium: bool
-        whether ST data is from Visium platform, and thus spots are hexagonally packed.
-
-    Returns:
-    ----------
-    counts_grid: (h_st, w_st, n_genes) ndarray
-        odd-right indexed float array containing counts for each gene at each Visium spot.
-    annots_grid: (h_st, w_st)
-        odd-right indexed integer array containing annotation index for each Visium spot (0=BG).
-    gene_names: (n_genes,) ndarray
-        names of genes in counts_grid.
-    annot_names: (n_annots,) ndarray
-        names of foreground annotations -- mapping of annots_grid[annots_grid > 0]-1.
-    '''
-    cmat = pd.read_csv(count_file, header=0, index_col=0, sep=cfile_delim)
-    if select_genes is not None:
-        cmat = cmat.loc[select_genes, :]
-    n_genes, _ = cmat.shape
-    
-    amat = pd.read_csv(annot_file, header=0, index_col=0, sep=afile_delim)
-    
-    counts_grid = np.zeros((h_st, w_st, n_genes), dtype=float)
-    annots_grid = np.zeros((h_st, w_st), dtype=int)
-    
-    for cstr in cmat.columns:
-        if Visium:
-            x_vis, y_vis = map(int, cstr.split('_'))
-            x, y = pseudo_hex_to_oddr(x_vis, y_vis)
-        else:
-            x_car, y_car = map(float, cstr.split('_'))
-            x, y = int(np.rint(x_car)), int(np.rint(y_car))
-        
-        # Only include annotated spots
-        if cstr in amat.columns and np.sum(amat[cstr].values) > 0:
-            counts_grid[y, x] = cmat[cstr].values
-            annots_grid[y, x] = np.argmax(amat[cstr].values) + 1
-    
-    return counts_grid, annots_grid, cmat.index.values, amat.index.values

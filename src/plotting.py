@@ -5,6 +5,9 @@ from matplotlib import pyplot as plt
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import precision_recall_curve, roc_curve, auc
 
+
+############### ROC and Precision-Recall Curves ###############
+
 def performance_curves(true, smax, class_names=None, condition_names=None):
     '''
     Parameters:
@@ -90,4 +93,98 @@ def performance_curves(true, smax, class_names=None, condition_names=None):
         ax[btm_row,col].set_ylim(0,1)
     
     return fig, ax, np.array(macro_auroc).mean(axis=0), np.array(macro_auprc).mean(axis=0)
+
+
+############### Confusion Matrix Plots #################
+
+# Accepts paired list of size (nsamples,) each containing 
+def plot_confusion_matrix(y_true, y_pred, class_names, density):
+    if np.min(y_true)>1:
+        y_true -= 1
+    if np.min(y_pred)>1:
+        y_pred -= 1
+
+    labels = range(0,len(class_names))
+    cm_array = confusion_matrix(y_true,y_pred,labels=labels)
+    
+    fig, ax = plt.subplots(1, constrained_layout=True)
+    if not density:
+        cb = ax.imshow(cm_array, interpolation='nearest', cmap=plt.cm.Blues)
+        ax.set_title('Confusion matrix', fontsize=7)
+        cbar = plt.colorbar(cb,fraction=0.046, pad=0.04)
+        cbar.ax.tick_params(labelsize=7)
+        cbar.set_label('Number of spots', rotation=270, labelpad=30, fontsize=7)
+    else:
+        denom = cm_array.sum(1,keepdims=True)
+        denom = np.maximum(denom, np.ones_like(denom))
+        cb = ax.imshow(cm_array/denom.astype(float),
+            vmin=0,vmax=1,interpolation='nearest', cmap=plt.cm.Blues)
+        ax.set_title('Normalized confusion matrix', fontsize=7)
+        cbar = plt.colorbar(cb,fraction=0.046, pad=0.04)
+        cbar.ax.tick_params(labelsize=7)
+        cbar.set_label('Proportion of spots', rotation=270, labelpad=30, fontsize=7)
+
+    xtick_marks = labels
+    ytick_marks = labels
+    ax.set_xticks(xtick_marks)
+    ax.set_yticks(ytick_marks)
+    ax.set_xticklabels(np.array(class_names),rotation=60,fontsize=7)
+    ax.set_yticklabels(np.array(class_names),fontsize=7)
+    ax.set_xlim([-0.5,len(class_names)-0.5])
+    ax.set_ylim([len(class_names)-0.5,-0.5])
+    ax.set_ylabel('True label',fontsize=7)
+    ax.set_xlabel('Predicted label',fontsize=7)
+
+    return fig
+
+############### Misclassification Density Plots ###############
+
+def misclass_density(out_softmax, true):    
+    ydim, xdim = true.shape
+    
+    mcd = np.zeros((ydim, xdim))
+    
+    for y in range(ydim):
+        for x in range(xdim):
+            # Only care about foreground patches
+            if true[y,x] > 0:
+                p_correct = out_softmax[true[y,x]-1, y, x]
+                mcd[y][x] = 1-p_correct
+    return mcd
+
+def plot_class_boundaries(base_image, true):
+    ydim, xdim = true.shape
+    
+    fig, ax = plt.subplots(1)
+    plt.axis("off")
+    
+    # Mask out background spots and render over black background
+    masked_image = np.ma.masked_where(true==0, base_image)
+    bgd = ax.imshow(np.zeros_like(true), cmap="gray")
+    fgd = ax.imshow(masked_image, cmap="plasma")
+    
+    xpix = 1.0/xdim
+    ypix = 1.0/ydim
+        
+    for y in range(ydim):
+        for x in range(xdim):
+            for x_off in [-1, 1]:
+                if x+x_off < 0 or x+x_off >= xdim:
+                    continue
+                if true[y,x] != true[y,x+x_off]:
+                    ax.axvline(x=x+x_off/2, ymin=1-((y+1)*ypix), ymax=1-(y*ypix), c='w')
+            for y_off in [-1, 1]:
+                if y+y_off < 0 or y+y_off >= ydim:
+                    continue
+                if true[y,x] != true[y+y_off,x]:
+                    ax.axhline(y=y+y_off/2, xmin=x*xpix, xmax=(x+1)*xpix, c='w')
+    
+    # create an axes on the right side of ax. The width of cax will be 5%
+    # of ax and the padding between cax and ax will be fixed at 0.05 inch.
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = fig.colorbar(fgd, cax=cax)
+    cbar.set_label("Misclassification Probability")
+    
+    return fig
     

@@ -22,8 +22,8 @@ class MultiModalDataset(CountDataset):
 		cfile_delim='\t', afile_delim='\t'):
 		super(CountDataset, self).__init__()
 
-		if len(count_files) != len(img_files) or len(img_files) !=  len(count_files):
-			raise ValueError('Length of count_files and annot_files must match.')
+		if len(count_files) != len(img_files) or len(count_files) !=  len(annot_files):
+			raise ValueError('Length of count_files, img_files and annot_files must match.')
 
 		self.select_genes = select_genes
 		self.countfile_mapping = []
