@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
 
 import numpy as np
-
-from utils import class_auroc
 
 # import the checkpoint API 
 import torch.utils.checkpoint as cp
