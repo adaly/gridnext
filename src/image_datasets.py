@@ -87,17 +87,17 @@ class PatchGridDataset(Dataset):
 		adat = pd.read_csv(self.annot_files[idx], header=0, index_col=0, sep=self.afile_delim)
 
 		patch_grid = None
-		annots_grid = torch.zeros((h_st, w_st), dtype=int)
+		annots_grid = torch.zeros((self.h_st, self.w_st), dtype=int)
 
 		rxp = re.compile("(\d+)_(\d+).jpg")
-		for f in os.listdir(self.img_files[idx]):
+		for f in os.listdir(str(self.img_files[idx])):
 			res = rxp.match(f)
 			if res is not None:
 				x, y = int(res.groups()[0]), int(res.groups()[1])
 
 				# All spots must also be annotated
 				cstr = '%d_%d' % (x, y)
-				if cstr not in adat.columns or adat[cstr].sum != 1:
+				if cstr not in adat.columns or adat[cstr].sum() != 1:
 					continue
 
 				patch = Image.open(os.path.join(self.img_files[idx], f))
