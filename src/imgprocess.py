@@ -212,14 +212,15 @@ if __name__ == '__main__':
 	#res = grid_from_wsi_visium(wsi_file, tpl_file)
 	#print(res.max())
 
-	#dest_dir = '/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/maynard_patchdata_oddr/'
-	#wsi_files = sorted(glob.glob('/Users/adaly/Desktop/Visium/Maynard_ImageData/*_full_image.tif'))
-	#tpl_files = sorted(glob.glob('/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/Spaceranger_simulated/*_tissue_positions_list.csv'))
-	#save_visium_patches(wsi_files, tpl_files, dest_dir)
-
-	data_dir = '/mnt/home/adaly/ceph/datasets/BA44/'
+	data_dir = '/mnt/Shared01/BA44/'
 	meta = pd.read_csv(os.path.join(data_dir, 'Splotch_Metadata.tsv'), header=0, sep='\t')
+
+	wsi_files = [os.path.join(data_dir, imfile.replace('HE', 'HE_ccast')) for imfile in meta['Image file']]
 	tpl_files = [os.path.join(data_dir, srd + '/outs/spatial/tissue_positions_list.csv') for srd in meta['Spaceranger output']]
-	annot_files = [os.path.join(data_dir, afile) for afile in meta['Annotation file']]
-	to_splotch_annots(annot_files, tpl_files, os.path.join(data_dir, 'annotations_splotch'))
+
+	dest_dir = os.path.join(data_dir, 'patchdata')
+	save_visium_patches(wsi_files, tpl_files, dest_dir)
+
+	#annot_files = [os.path.join(data_dir, afile) for afile in meta['Annotation file']]
+	#to_splotch_annots(annot_files, tpl_files, os.path.join(data_dir, 'annotations_splotch'))
 
