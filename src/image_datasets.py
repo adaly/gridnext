@@ -13,7 +13,7 @@ from count_datasets import pseudo_hex_to_oddr
 
 
 class PatchDataset(Dataset):
-	def __init__(self, img_files, annot_files, img_transforms=None, afile_delim='\t'):
+	def __init__(self, img_files, annot_files, img_transforms=None, afile_delim='\t', verbose=False):
 		super(PatchDataset, self).__init__()
 
 		if len(img_files) != len(annot_files):
@@ -24,6 +24,9 @@ class PatchDataset(Dataset):
 
 		self.afile_delim = afile_delim
 
+		bad_annots = 0
+		missing_img = 0
+
 		# Find all annotated patches with image data
 		for (imdir, afile) in zip(img_files, annot_files):
 			with open(afile, 'r') as fh:				
@@ -32,13 +35,17 @@ class PatchDataset(Dataset):
 					
 					# Skip over unannotated or mis-annotated spots
 					if not np.sum(adat[cstr]) == 1:
-						print(afile, cstr, 'improper annotation')
+						if verbose:
+							print(afile, cstr, 'improper annotation')
+						bad_annots += 1
 						continue
 
 					# Skip over spots without image data
 					imgpath = os.path.join(imdir, cstr + '.jpg')
 					if not os.path.exists(imgpath):
-						print(imdir, cstr, 'no image data')
+						if verbose:
+							print(imdir, cstr, 'no image data')
+						missing_img += 1
 						continue
 
 					self.annotations.append(np.argmax(adat[cstr]))
@@ -48,6 +55,8 @@ class PatchDataset(Dataset):
 			self.preprocess = Compose([ToTensor()])
 		else:
 			self.preprocess = img_transforms
+
+		print('%d mis/un-annotated spots, %d spots missing image data' % (bad_annots, missing_img))
 
 	def __len__(self):
 		return len(self.annotations)

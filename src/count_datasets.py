@@ -60,7 +60,7 @@ class CountDataset(Dataset):
     # For independent classification of spots based on 1d expression vectors.
 
     def __init__(self, count_files, annot_files, select_genes=None,
-        cfile_delim='\t', afile_delim='\t'):
+        cfile_delim='\t', afile_delim='\t', verbose=False):
         super(CountDataset, self).__init__()
                 
         if not len(count_files) == len(annot_files):
@@ -72,6 +72,9 @@ class CountDataset(Dataset):
         self.countfile_mapping = []
         self.annotations = []
         self.cind_mapping = []
+
+        bad_annots = 0
+        missing_annots = 0
         
         # Construct unique integer index for all annotated patches
         for cf, af in zip(count_files, annot_files):
@@ -82,13 +85,18 @@ class CountDataset(Dataset):
 
                 for cstr in adat.columns:
                     # Skip over unannotated or mis-annotated spots
-                    if not cstr in counts_header:
-                        print(af, cstr, 'missing')
+                    if not cstr in counts_header or np.sum(adat[cstr])==0:
+                        if verbose:
+                            print(af, cstr, 'missing')
+                        missing_annots += 1
                         continue
+
                     counts_ind = counts_header.index(cstr)
 
                     if not np.sum(adat[cstr]) == 1:
-                        print(af, cstr, 'improper annotation')
+                        if verbose:
+                            print(af, cstr, 'improper annotation')
+                        bad_annots += 1
                         continue
 
                     self.annotations.append(np.argmax(adat[cstr]))
@@ -96,6 +104,8 @@ class CountDataset(Dataset):
                     self.cind_mapping.append(counts_ind)
         
         self.select_genes = select_genes
+
+        print('%d un-annotated spots, %d mis-annotated spots' % (missing_annots, bad_annots))
         
     def __len__(self):
         return len(self.cind_mapping)
