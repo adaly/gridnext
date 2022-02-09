@@ -123,4 +123,6 @@ def read_annotated_starray(count_file, annot_file, select_genes=None,
     
     return counts_grid, annots_grid, cmat.index.values, amat.index.values
 
-
+# Write a Loupe-formatted file containing annotations for a given tissue.
+def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None):
+    raise NotImplementerError
