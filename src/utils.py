@@ -133,7 +133,7 @@ def read_annotated_starray(count_file, annot_file=None, select_genes=None,
     return counts_grid, annots_grid, cmat.index.values, annot_names
 
 # Write a Loupe-formatted file containing annotations for a given tissue.
-def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None):
+def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None, zero_bg=True):
     positions = pd.read_csv(position_file, index_col=0, header=None,
       names=["in_tissue", "array_row", "array_col", "pixel_row", "pixel_col"])
     barcodes = []
@@ -146,8 +146,8 @@ def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None):
         if ent['in_tissue']:
             x, y = pseudo_hex_to_oddr(ent['array_col'], ent['array_row'])
             
-            # foreground annotations are between 1 and N_AAR, with 0 reserved for BG
-            a = annot_tensor[y, x] - 1
+            # If zero_bg, foreground annotations are between 1 and N_AAR, with 0 reserved for BG
+            a = annot_tensor[y, x] - int(zero_bg)
 
             if a < 0:
                 annotations.append('')
