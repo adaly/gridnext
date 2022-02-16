@@ -69,7 +69,7 @@ def pseudo_hex_to_oddr(col, row):
     return int(x), int(y)
 
 # Read paired count and annotation files and populate input/label ndarrays for GridNet.
-def read_annotated_starray(count_file, annot_file, select_genes=None, 
+def read_annotated_starray(count_file, annot_file=None, select_genes=None, 
     h_st=78, w_st=64, Visium=True, cfile_delim='\t', afile_delim='\t'):
     '''
     Parameters:
@@ -103,7 +103,12 @@ def read_annotated_starray(count_file, annot_file, select_genes=None,
         cmat = cmat.loc[select_genes, :]
     n_genes, _ = cmat.shape
     
-    amat = pd.read_csv(annot_file, header=0, index_col=0, sep=afile_delim)
+    if annot_file is not None:
+        amat = pd.read_csv(annot_file, header=0, index_col=0, sep=afile_delim)
+        annot_names = amat.index.values
+    else:
+        amat = None
+        annot_names = []
     
     counts_grid = np.zeros((h_st, w_st, n_genes), dtype=float)
     annots_grid = np.zeros((h_st, w_st), dtype=int)
@@ -117,12 +122,33 @@ def read_annotated_starray(count_file, annot_file, select_genes=None,
             x, y = int(np.rint(x_car)), int(np.rint(y_car))
         
         # Only include annotated spots
-        if cstr in amat.columns and np.sum(amat[cstr].values) > 0:
+        if amat is not None:
+            if cstr in amat.columns and np.sum(amat[cstr].values) > 0:
+                counts_grid[y, x] = cmat[cstr].values
+                annots_grid[y, x] = np.argmax(amat[cstr].values) + 1
+        else:
             counts_grid[y, x] = cmat[cstr].values
-            annots_grid[y, x] = np.argmax(amat[cstr].values) + 1
+            annots_grid[y, x] = 0
     
-    return counts_grid, annots_grid, cmat.index.values, amat.index.values
+    return counts_grid, annots_grid, cmat.index.values, annot_names
 
 # Write a Loupe-formatted file containing annotations for a given tissue.
 def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None):
-    raise NotImplementerError
+    positions = pd.read_csv(position_file, index_col=0, header=None,
+      names=["in_tissue", "array_row", "array_col", "pixel_row", "pixel_col"])
+    barcodes = []
+    annotations = []
+
+    for i in range(len(positions)):
+        ent = positions.iloc[i]
+        if ent['in_tissue']:
+            x, y = pseudo_hex_to_oddr(ent['array_col'], ent['array_row'])
+
+            if annot_names is not None:
+                annotations.append(annot_names[annot_tensor[y, x]])
+            else:
+                annotations.append(annot_tensor[y, x])
+            barcodes.append(positions.index[i])
+
+    df = pd.DataFrame({'Barcode': barcodes, 'AARs': annotations})
+    df.to_csv(output_file, sep=',', index=False)
