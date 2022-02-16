@@ -139,6 +139,8 @@ def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None):
     barcodes = []
     annotations = []
 
+    annot_tensor = annot_tensor.squeeze()
+
     for i in range(len(positions)):
         ent = positions.iloc[i]
         if ent['in_tissue']:
