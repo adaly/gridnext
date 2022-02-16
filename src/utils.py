@@ -145,11 +145,16 @@ def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None):
         ent = positions.iloc[i]
         if ent['in_tissue']:
             x, y = pseudo_hex_to_oddr(ent['array_col'], ent['array_row'])
+            
+            # foreground annotations are between 1 and N_AAR, with 0 reserved for BG
+            a = annot_tensor[y, x] - 1
 
-            if annot_names is not None:
-                annotations.append(annot_names[annot_tensor[y, x]])
+            if a < 0:
+                annotations.append('')
+            elif annot_names is not None:
+                annotations.append(annot_names[a])
             else:
-                annotations.append(annot_tensor[y, x])
+                annotations.append(a)
             barcodes.append(positions.index[i])
 
     df = pd.DataFrame({'Barcode': barcodes, 'AARs': annotations})
