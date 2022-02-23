@@ -4,7 +4,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-import progressbar
+from tqdm import tqdm
 
 
 # Training loop for spot classification
@@ -37,7 +37,7 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
 
             # Optionally display epoch progress to stdout
             if display:
-                iterator = progressbar.progressbar(dataloaders[phase])
+                iterator = tqdm(dataloaders[phase])
             else:
                 iterator = dataloaders[phase]
 
