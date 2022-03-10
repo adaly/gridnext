@@ -131,7 +131,7 @@ class PatchGridDataset(Dataset):
 					x, y = pseudo_hex_to_oddr(x, y)
 
 				if self.annot_files is not None:
-					annots_grid[y, x] = np.argmax(adat[cstr])
+					annots_grid[y, x] = np.argmax(adat[cstr]) + 1 # 0 reserved for background
 				patch_grid[y, x] = patch
 
 		return patch_grid.float(), annots_grid.long()
