@@ -12,7 +12,7 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
     outfile=None, display=False):
     since = time.time()
 
-    val_acc_history, train_acc_history = [], []
+    val_history, train_history = [], []
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -79,9 +79,9 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
                 if outfile is not None:
                 	torch.save(model.state_dict(), outfile)
             if phase == 'val':
-                val_acc_history.append(epoch_acc)
+                val_history.append(epoch_loss)
             else:
-                train_acc_history.append(epoch_acc)
+                train_history.append(epoch_loss)
 
         print()
 
@@ -91,15 +91,14 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
 
     # load best model weights
     model.load_state_dict(best_model_wts)
-    return model, val_acc_history, train_acc_history
+    return model, val_history, train_history
     
 # Training loop for grid registration
 def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outfile=None, 
-    f_opt=None,
-    finetune=False, accum_iters=1):
+    f_opt=None, accum_iters=1):
     since = time.time()
 
-    train_acc_history, val_acc_history = [], []
+    train_history, val_history = [], []
 
     best_model_wts = copy.deepcopy(model.state_dict())
     best_acc = 0.0
@@ -187,9 +186,9 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outf
                     else:
                         torch.save(optimizer.state_dict(), os.path.splitext(outfile)[0]+".opt")
             if phase == 'val':
-                val_acc_history.append(epoch_acc)
+                val_history.append(epoch_loss)
             else:
-                train_acc_history.append(epoch_acc)
+                train_history.append(epoch_loss)
 
         print()
 
