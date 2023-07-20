@@ -3,6 +3,9 @@ import re
 import glob
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from sklearn.preprocessing import LabelEncoder
+
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
@@ -11,14 +14,56 @@ from torch.utils.data import Dataset
 from torchvision.transforms import Compose, ToTensor
 
 from count_datasets import pseudo_hex_to_oddr
+from utils import read_annotfile
 
 
 class PatchDataset(Dataset):
-	def __init__(self, img_files, annot_files=None, img_transforms=None, afile_delim='\t', verbose=False):
+	def __init__(self, img_files, annot_files=None, position_files=None, Visium=True,
+		img_transforms=None, afile_delim=',', img_ext='jpg', verbose=False):
+		'''
+		Parameters:
+		----------
+		img_files: iterable of str
+			one sub-directory per ST array, each containing spot images named as "*_[array_xcoord]_[array_ycoord].[img_ext]"
+		annot_files: iterable of str
+			one annotation file per ST array, in either:
+			- Loupe (Visium) format: barcode, annotation columns
+			- classic ST format: array_coords x annotations binary matrix
+		position_files: iterable of str
+			for Visium data, tissue position file output by Spaceranger mapping spatial barcodes to array/pixel coordinates
+		Visium: bool
+			Visium data (default) or classic ST data
+		img_transforms: Transform
+			composition of torchvision Transforms to be applied to input images
+		afile_delim: char
+			delimiter for annotation file
+		img_ext: str
+			extension used for image data (default: .jpg)
+		verbose: bool
+			print details of missing patches/annotations
+		'''
+
 		super(PatchDataset, self).__init__()
 
 		if annot_files is not None and len(img_files) != len(annot_files):
 			raise ValueError('Length of img_files and annot_files must match.')
+
+		if Visium:
+			if annot_files is not None:
+				if position_files is None:
+					raise ValueError('Must provide Spaceranger position files mapping barcodes to array locations.')
+				if len(position_files) != len(annot_files):
+					raise ValueError('Number of Spaceranger position files does not match number of annotation files.')
+
+				# Map set of all unique annotations to integer values
+				all_annots = np.array([])
+				for afile, pfile in zip(annot_files, position_files):
+					_, annot_strs = read_annotfile(afile, pfile, Visium=True, afile_delim=afile_delim)
+					all_annots = np.union1d(all_annots, annot_strs)
+
+				le = LabelEncoder()
+				le.fit(all_annots)
+				self.classes = le.classes_
 
 		self.imgpath_mapping = []
 		self.annotations = []
@@ -30,31 +75,29 @@ class PatchDataset(Dataset):
 
 		# Find all annotated patches with image data
 		if annot_files is not None:
-			for (imdir, afile) in zip(img_files, annot_files):
-				with open(afile, 'r') as fh:				
-					adat = pd.read_csv(afile, header=0, index_col=0, sep=self.afile_delim)
-					for cstr in adat.columns:
-						
-						# Skip over unannotated or mis-annotated spots
-						if not np.sum(adat[cstr]) == 1:
-							if verbose:
-								print(afile, cstr, 'improper annotation')
-							bad_annots += 1
+			for i, (imdir, afile) in enumerate(zip(img_files, annot_files)):
+				if Visium:
+					coord_strs, annot_strs = read_annotfile(afile, position_file=position_files[i], 
+						Visium=True, afile_delim=self.afile_delim)
+					annot_lbls = le.transform(annot_strs)
+				else:	
+					coord_strs, annot_lbls = read_annotfile(afile, Visium=False, afile_delim=self.afile_delim)
+
+				adict = dict(zip(coord_strs, annot_lbls))
+
+				imgpaths = glob.glob(os.path.join(imdir, '*.' + img_ext))
+				for imfile in imgpaths:
+					cstr = '_'.join(Path(imfile).stem.split('_')[-2:])
+
+					if cstr not in adict.keys():
+						if verbose:
+							print(cstr, 'image patch missing annotation (skipping)')
 							continue
 
-						# Skip over spots without image data
-						imgpath = os.path.join(imdir, cstr + '.jpg')
-						if not os.path.exists(imgpath):
-							if verbose:
-								print(imdir, cstr, 'no image data')
-							missing_img += 1
-							continue
-
-						self.annotations.append(np.argmax(adat[cstr]))
-						self.imgpath_mapping.append(imgpath)
+					self.annotations.append(adict[cstr])
+					self.imgpath_mapping.append(imfile)
 		else:
-			self.imgpath_mapping = np.concatenate([glob.glob(os.path.join(imdir, '*.jpg')) for imdir in img_files])
-
+			self.imgpath_mapping = np.concatenate([glob.glob(os.path.join(imdir, '*.' + img_ext)) for imdir in img_files])
 
 		if img_transforms is None:
 			self.preprocess = Compose([ToTensor()])
@@ -80,11 +123,49 @@ class PatchDataset(Dataset):
 
 
 class PatchGridDataset(Dataset):
-	def __init__(self, img_files, annot_files=None, h_st=78, w_st=64, Visium=True,
-		img_transforms=None, afile_delim='\t'):
+	def __init__(self, img_files, annot_files=None, position_files=None, Visium=True, 
+		img_transforms=None, afile_delim=',', img_ext='jpg', h_st=78, w_st=64):
+		'''
+		Parameters:
+		----------
+		img_files: iterable of str
+			one sub-directory per ST array, each containing spot images named as "*_[array_xcoord]_[array_ycoord].[img_ext]"
+		annot_files: iterable of str
+			one annotation file per ST array, in either:
+			- Loupe (Visium) format: barcode, annotation columns
+			- classic ST format: array_coords x annotations binary matrix
+		position_files: iterable of str
+			for Visium data, tissue position file output by Spaceranger mapping spatial barcodes to array/pixel coordinates
+		Visium: bool
+			Visium data (default) or classic ST data
+		img_transforms: Transform
+			composition of torchvision Transforms to be applied to input images
+		afile_delim: char
+			delimiter for annotation file
+		img_ext: str
+			extension used for image data (default: .jpg)
+		h_st: int
+			number of rows in ST array
+		w_st: int
+			number of columns in ST array
+		'''
 
 		if annot_files is not None and len(img_files) != len(annot_files):
 			raise ValueError('Length of img_files and annot_files must match.')
+
+		if Visium:
+			if annot_files is not None:
+				if position_files is None:
+					raise ValueError('Must provide Spaceranger position files mapping barcodes to array locations.')
+				if len(position_files) != len(annot_files):
+					raise ValueError('Number of Spaceranger position files does not match number of annotation files.')
+
+				# Map set of all unique annotations to integer values
+				all_annots = np.concatenate([pd.read_csv(afile, header=0, index_col=0).iloc[:,0] for afile in annot_files])
+				self.le = LabelEncoder()
+				self.le.fit(all_annots)
+				self.classes = self.le.classes_
+				self.position_files = position_files
 
 		self.img_files = img_files
 		self.annot_files = annot_files
@@ -92,6 +173,7 @@ class PatchGridDataset(Dataset):
 		self.w_st = w_st
 		self.Visium = Visium
 		self.afile_delim = afile_delim
+		self.img_ext = img_ext
 
 		if img_transforms is None:
 			self.preprocess = Compose([ToTensor()])
@@ -103,22 +185,25 @@ class PatchGridDataset(Dataset):
 
 	def __getitem__(self, idx):
 		if self.annot_files is not None:
-			adat = pd.read_csv(self.annot_files[idx], header=0, index_col=0, sep=self.afile_delim)
+			if self.Visium:
+				coord_strs, annot_strs = read_annotfile(
+					self.annot_files[idx], position_file=self.position_files[idx], Visium=True, 
+					afile_delim=self.afile_delim)
+				annot_lbls = self.le.transform(annot_strs)
+			else:	
+				coord_strs, annot_lbls = read_annotfile(afile, Visium=False, 
+					afile_delim=self.afile_delim)
+
+			adict = dict(zip(coord_strs, annot_lbls))
 
 		patch_grid = None
 		annots_grid = torch.zeros((self.h_st, self.w_st), dtype=int)
 
-		rxp = re.compile("(\d+)_(\d+).jpg")
+		rxp = re.compile(".*_(\d+)_(\d+).%s" % self.img_ext)
 		for f in os.listdir(str(self.img_files[idx])):
 			res = rxp.match(f)
 			if res is not None:
-				x, y = int(res.groups()[0]), int(res.groups()[1])
-
-				# If annotation provided, drop un-annotated spots
-				if self.annot_files is not None:
-					cstr = '%d_%d' % (x, y)
-					if cstr not in adat.columns or adat[cstr].sum() != 1:
-						continue
+				a_x, a_y = int(res.groups()[0]), int(res.groups()[1])
 
 				patch = Image.open(os.path.join(self.img_files[idx], f))
 				patch = self.preprocess(patch)
@@ -128,10 +213,13 @@ class PatchGridDataset(Dataset):
 					patch_grid = torch.zeros(self.h_st, self.w_st, c, h, w)
 				
 				if self.Visium:
-					x, y = pseudo_hex_to_oddr(x, y)
+					x, y = pseudo_hex_to_oddr(a_x, a_y)
+				else:
+					x, y = a_x, a_y
 
 				if self.annot_files is not None:
-					annots_grid[y, x] = np.argmax(adat[cstr]) + 1 # 0 reserved for background
+					cstr = '%d_%d' % (a_x, a_y)
+					annots_grid[y, x] = adict[cstr] + 1 # 0 reserved for background
 				patch_grid[y, x] = patch
 
 		return patch_grid.float(), annots_grid.long()

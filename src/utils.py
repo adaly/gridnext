@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import matplotlib
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-
+from scipy import sparse
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import confusion_matrix, roc_curve, auc, roc_auc_score
 
@@ -159,3 +159,56 @@ def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None, 
 
     df = pd.DataFrame({'Barcode': barcodes, 'AARs': annotations})
     df.to_csv(output_file, sep=',', index=False)
+
+
+# Convert AnnData of a single Visium array to paired input (features, h_st, w_st) and (h_st, w_st) label tensors.
+def anndata_to_grids(adata, labels, h_st=78, w_st=64, use_pcs=False, vis_coords=True):
+    if not use_pcs:
+        counts_grid = torch.zeros((len(adata.var), h_st, w_st))
+    else:
+        counts_grid = torch.zeros((use_pcs, h_st, w_st))
+    labels_grid = torch.zeros((h_st, w_st))
+
+    for i, (x,y) in enumerate(zip(adata.obs.x, adata.obs.y)):
+        if vis_coords:
+            if x % 2 == 1:
+                x = (x-1)//2
+            else:
+                x = x//2
+        labels_grid[y,x] = labels[i] + 1
+
+        if use_pcs:
+            counts_grid[:,y,x] = torch.tensor(adata.obsm['X_pca'][i,:use_pcs])
+        elif sparse.issparse(adata.X):
+            counts_grid[:,y,x] = torch.tensor(np.array(adata.X[i,:].todense()))
+        else:
+            counts_grid[:,y,x] = torch.tensor(adata.X[i,:])
+        
+    return counts_grid.float(), labels_grid.long()
+
+# Read in an annotation file and return paired lists of coordinate strings and annotations
+def read_annotfile(afile, position_file=None, afile_delim=',', Visium=True):
+    if Visium:
+        adat = pd.read_csv(afile, header=0, index_col=0, sep=afile_delim)
+        pdat = pd.read_csv(position_file, header=0, index_col=0)
+
+        # Filter unannotated spots
+        adat = adat[adat.iloc[:,0] != '']
+
+        adat = adat.join(pdat, how='left')
+        coord_strs = ['%d_%d' % (x,y) for x,y in zip(adat['array_col'], adat['array_row'])]
+        annot_strs = adat.iloc[:,0]
+
+        return coord_strs, annot_strs
+    
+    else:
+        adat = pd.read_csv(afile, header=0, index_col=0, sep=afile_delim)
+
+        # Filter improperly annotated spots:
+        bad_annots += np.sum(adat.sum(axis=1) != 1)
+        adat = adat[adat.sum(axis=1) == 1]
+
+        coord_strs = adat.columns
+        annot_lbls = np.argmax(adat.values, axis=0)
+
+        return coord_strs, annot_lbls
