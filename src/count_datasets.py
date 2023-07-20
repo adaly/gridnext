@@ -1,11 +1,13 @@
 import re
 import numpy as np
 import pandas as pd
-
 import torch
-from torch.utils.data import Dataset, TensorDataset
 
-from utils import pseudo_hex_to_oddr, read_annotated_starray
+from tqdm import tqdm
+from scipy.sparse import issparse
+from torch.utils.data import Dataset, TensorDataset
+from sklearn.preprocessing import LabelEncoder
+from utils import pseudo_hex_to_oddr, read_annotated_starray, anndata_to_grids
 
 
 ############### Read full datasets into memory ###############
@@ -208,3 +210,93 @@ class CountGridDataset(Dataset):
         annots_grid = torch.from_numpy(annots_grid)
         
         return counts_grid.float(), annots_grid.long()
+
+
+############### AnnData-based Datasets ###############
+
+class AnnDataset(Dataset):
+    def __init__(self, adata, obs_label, use_pcs=False):
+        super(AnnDataset, self).__init__()
+        self.adata = adata
+        self.use_pcs = use_pcs
+        self.obs_label = obs_label
+
+        self.le = LabelEncoder()
+        self.labels = self.le.fit_transform(adata.obs[obs_label])
+    
+    def __len__(self):
+        return len(self.adata)
+    
+    def __getitem__(self, idx):
+        y = self.labels[idx]
+        if self.use_pcs is not None:
+            x = self.adata.obsm['X_pca'][idx, :self.use_pcs]
+        else:
+            x = self.adata.X[idx, :]
+        
+        return torch.from_numpy(x), torch.tensor(y).long()
+
+
+# Return a TensorDataset matching spot count data (either from X or X_pca) to obs_label data from adata.obs.
+# (MUCH faster than AnnDataset)
+def anndata_to_tensordataset(adata, obs_label, use_pcs=False):
+    le = LabelEncoder()
+    labels = le.fit_transform(adata.obs[obs_label])
+    print(le.classes_)
+    
+    if use_pcs:
+        count_data = adata.obsm['X_pca'][:, :use_pcs]
+    else:
+        count_data = adata.X
+
+    if issparse(count_data):
+        count_data = count_data.todense()
+        
+    return TensorDataset(torch.tensor(count_data).float(),
+                         torch.tensor(labels).long())
+
+
+# Subset AnnData object by obs_arr (e.g., Visium array ID)
+# -> FAST instantiation (<1s), SLOW accession (~20s/array)
+class AnnGridDataset(AnnDataset):
+    def __init__(self, adata, obs_label, obs_arr, h_st=78, w_st=64, use_pcs=False, 
+                 vis_coords=True):
+        super(AnnGridDataset, self).__init__(adata, obs_label, use_pcs)
+        
+        self.h_st = h_st
+        self.w_st = w_st
+        self.obs_arr = obs_arr
+        self.vis_coords = vis_coords
+        
+        self.arrays = adata.obs[obs_arr].unique()
+    
+    def __len__(self):
+        return len(self.adata.obs[self.obs_arr].unique())
+    
+    def __getitem__(self, idx):
+        adata_arr = self.adata[self.adata.obs[self.obs_arr]==self.arrays[idx]]
+        lbls_arr = self.le.transform(adata_arr.obs[self.obs_label].values)
+        
+        counts_grid, labels_grid = anndata_to_grids(adata_arr, lbls_arr, self.h_st, 
+                                                    self.w_st, self.use_pcs, self.vis_coords)
+        return counts_grid.float(), labels_grid.long()
+
+    
+# Load full datset into memory as TensorDataset -- slow instantiation
+# -> SLOW instantiation (~20s/array), FAST accession (<1s)
+def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64, 
+                                    use_pcs=False, vis_coords=True):
+    le = LabelEncoder()
+    labels = le.fit_transform(adata.obs[obs_label])
+    
+    count_grids, label_grids = [],[]
+    
+    for arr in tqdm(adata.obs[obs_arr].unique()):
+        adata_arr = adata[adata.obs[obs_arr]==arr]
+        lbls_arr = le.transform(adata_arr.obs[obs_label].values)
+        
+        cg, lg = anndata_to_grids(adata_arr, lbls_arr, h_st, w_st, use_pcs, vis_coords)
+        count_grids.append(cg)
+        label_grids.append(lg)
+            
+    return TensorDataset(torch.stack(count_grids), torch.stack(label_grids))
