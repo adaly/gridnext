@@ -15,7 +15,7 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
     val_history, train_history = [], []
 
     best_model_wts = copy.deepcopy(model.state_dict())
-    best_acc = 0.0
+    best_loss = np.inf
     
     # GPU support
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -72,8 +72,8 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc), flush=True)
 
             # deep copy the model
-            if phase == 'val' and epoch_acc > best_acc:
-                best_acc = epoch_acc
+            if phase == 'val' and epoch_loss < best_loss:
+                best_loss = epoch_loss
                 best_model_wts = copy.deepcopy(model.state_dict())
 
                 if outfile is not None:
@@ -87,7 +87,7 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60), flush=True)
-    print('Best val Acc: {:4f}'.format(best_acc), flush=True)
+    print('Best val loss: {:4f}'.format(best_loss), flush=True)
 
     # load best model weights
     model.load_state_dict(best_model_wts)
@@ -101,7 +101,7 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outf
     train_history, val_history = [], []
 
     best_model_wts = copy.deepcopy(model.state_dict())
-    best_acc = 0.0
+    best_loss = np.inf
     
     # GPU support
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -173,8 +173,8 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outf
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc), flush=True)
 
             # deep copy the model
-            if phase == 'val' and epoch_acc > best_acc:
-                best_acc = epoch_acc
+            if phase == 'val' and epoch_loss < best_loss:
+                best_loss = epoch_loss
                 best_model_wts = copy.deepcopy(model.state_dict())
                 if outfile is not None:
                     torch.save(model.state_dict(), outfile)
@@ -194,7 +194,7 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outf
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60), flush=True)
-    print('Best val Acc: {:4f}'.format(best_acc), flush=True)
+    print('Best val loss: {:4f}'.format(best_loss), flush=True)
 
     # load best model weights
     model.load_state_dict(best_model_wts)
