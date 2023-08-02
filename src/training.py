@@ -198,4 +198,4 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outf
 
     # load best model weights
     model.load_state_dict(best_model_wts)
-    return model, val_acc_history, train_acc_history
+    return model, val_history, train_history
