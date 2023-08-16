@@ -134,19 +134,27 @@ def read_visium_graph(spaceranger_output, annot_file=None, spaceranger_version=2
 		df_annot = pd.read_csv(annot_file, sep=',', header=0, index_col=0)
 
 		# discard unannotated spots
-		barcodes_annot = df_annot.index
-		df_counts = df_counts.loc[barcodes_annot]
-		df_pos = df_pos.loc[barcodes_annot]
+		bc_shared = df_annot.index.intersection(df_pos.index)
+		df_counts = df_counts.loc[bc_shared]
+		df_pos = df_pos.loc[bc_shared]
 
 		y = df_annot.iloc[:,0].values
 	else:
 		y = None
 
-	# Calculate adjacency matrix
-	arr_coords = df_pos[['array_row','array_col']].values
-	dmat = squareform(pdist(arr_coords))
-	# in Visium pseudo-hex indexing, adjacent spots <2 units apart
-	A = np.vstack(np.where(np.logical_and(dmat > 0, dmat <= 2)))
+	arr_coords = df_pos[['array_col','array_row']].values
+	
+	# transform coordinates from "pseudo-hex":
+	true_coords = arr_coords.copy().astype(float)
+	true_coords[:,0] = true_coords[:,0] * 0.5          # halve horizontal dimension
+	true_coords[:,1] = true_coords[:,1] * np.sqrt(3)/2 # scale vertical dimension to achieve unit adjacencies
+
+	# Calculate adjacency matrix from distance matrix
+	# TODO: cost can be reduced from N^2 to N by enumerating all possible neighbors for each point and intersecting
+	#   with list of coordinates actually present in data. 
+	dmat = squareform(pdist(true_coords))
+	# after transforming from pseudo-hex indexing, adjacent spots 1 units apart
+	A = np.vstack(np.where(np.logical_and(dmat > 0, dmat <= 1)))
 
 	return df_counts.values, A, arr_coords, y
 
@@ -159,4 +167,14 @@ if __name__ == '__main__':
 	annot_file = [os.path.join(data_dir, 'annotation', a+'.csv') for a in arr_name]
 	array_lbls = ['tissue1', 'tissue2']
 	
-	visium_to_graphdata(spaceranger_dir, annot_files=annot_file)
+	gdat = visium_to_graphdata(spaceranger_dir, annot_files=annot_file)
+
+	# Check that edges are symmetric and each node has no more than six neighbors
+	neighbors = np.zeros(gdat.edge_index.max()+1)
+	for (x,y) in gdat.edge_index.T:
+		assert x != y
+		neighbors[x] += 0.5
+		neighbors[y] += 0.5
+
+	assert np.max(neighbors) <= 6
+
