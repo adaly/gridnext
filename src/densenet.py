@@ -91,7 +91,7 @@ class DenseNet(nn.Module):
     """
     def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5,
                  num_init_features=24, bn_size=4, drop_rate=0,
-                 num_classes=10, small_inputs=True, efficient=False):
+                 num_classes=10, small_inputs=True, efficient=False, classify=True):
 
         super(DenseNet, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between 0 and 1'
@@ -133,6 +133,7 @@ class DenseNet(nn.Module):
         self.features.add_module('norm_final', nn.BatchNorm2d(num_features))
 
         # Linear layer
+        self.classify = classify  # whether to perform final classification or extract features
         self.classifier = nn.Linear(num_features, num_classes)
 
         # Initialization
@@ -152,5 +153,6 @@ class DenseNet(nn.Module):
         out = F.relu(features, inplace=True)
         out = F.adaptive_avg_pool2d(out, (1, 1))
         out = torch.flatten(out, 1)
-        out = self.classifier(out)
+        if self.classify:
+            out = self.classifier(out)
         return out

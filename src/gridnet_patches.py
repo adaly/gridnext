@@ -11,7 +11,7 @@ import hexagdly
 
 class GridNet(nn.Module):
 	def __init__(self, patch_classifier, patch_shape, grid_shape, n_classes, 
-		use_bn=True, atonce_patch_limit=None):
+		use_bn=True, atonce_patch_limit=None, f_dim=None):
 		super(GridNet, self).__init__()
 
 		self.patch_shape = patch_shape
@@ -20,14 +20,17 @@ class GridNet(nn.Module):
 		self.patch_classifier = patch_classifier
 		self.use_bn = use_bn
 		self.atonce_patch_limit = atonce_patch_limit
+        
+        # If output of patch classifier is different dimension from n_classes
+		if f_dim is None:
+			f_dim = n_classes
+		self.f_dim = f_dim
 
 		self.corrector = self._init_corrector()
 
-		# Define a constant vector to be returned by attempted classification of "background" patches
-		#self.bg = torch.zeros((1,n_classes))
 		# NOTE: This tensor MUST have requires_grad=True for gradient checkpointing to execute. Otherwise, 
 		# it fails during backprop with "element 0 of tensors does not require grad and does not have a grad_fn"
-		self.bg = torch.zeros((1,n_classes), requires_grad=True)
+		self.bg = torch.zeros((1,f_dim), requires_grad=True)
 		self.register_buffer("bg_const", self.bg) # Required for proper device handling with CUDA.
 
 		self.dummy = torch.ones(1, dtype=torch.float32, requires_grad=True)
@@ -36,7 +39,7 @@ class GridNet(nn.Module):
 	# Define Sequential model containing convolutional layers in global corrector.
 	def _init_corrector(self):
 		cnn_layers = []
-		cnn_layers.append(nn.Conv2d(self.n_classes, self.n_classes, 3, padding=1))
+		cnn_layers.append(nn.Conv2d(self.f_dim, self.n_classes, 3, padding=1))
 		if self.use_bn:
 			cnn_layers.append(nn.BatchNorm2d(self.n_classes))
 		cnn_layers.append(nn.ReLU())
@@ -89,7 +92,7 @@ class GridNet(nn.Module):
 				count += self.atonce_patch_limit
 			patch_pred_list = torch.cat(cp_chunks,0)
 
-		patch_pred_grid = torch.reshape(patch_pred_list, (-1,)+self.grid_shape+(self.n_classes,))
+		patch_pred_grid = torch.reshape(patch_pred_list, (-1,)+self.grid_shape+(self.f_dim,))
 		patch_pred_grid = patch_pred_grid.permute((0,3,1,2))
 
 		return patch_pred_grid
@@ -106,9 +109,9 @@ class GridNet(nn.Module):
 # Expects input to employ the addressing scheme employed by HexagDLy.
 class GridNetHex(GridNet):
 	def __init__(self, patch_classifier, patch_shape, grid_shape, n_classes, 
-		use_bn=True, atonce_patch_limit=None):
+		use_bn=True, atonce_patch_limit=None, f_dim=None):
 		super(GridNetHex, self).__init__(patch_classifier, patch_shape, grid_shape, n_classes, 
-			use_bn, atonce_patch_limit)
+			use_bn, atonce_patch_limit, f_dim)
 
 	# Note: hexagdly.Conv2d seems to provide same-padding when stride=1.
 	'''def _init_corrector(self):
@@ -127,12 +130,12 @@ class GridNetHex(GridNet):
 	# Conv2d(32)->Conv2d(32)->BN->ReLU->Conv2d(32)->Conv2d(32)->BN->ReLU->Conv2d(n_classes)
 	def _init_corrector(self):
 		cnn_layers = []
-		cnn_layers.append(hexagdly.Conv2d(in_channels=self.n_classes, out_channels=32, 
+		cnn_layers.append(hexagdly.Conv2d(in_channels=self.f_dim, out_channels=32, 
 			kernel_size=1, stride=1, bias=True))
 		cnn_layers.append(hexagdly.Conv2d(in_channels=32, out_channels=32, 
 			kernel_size=1, stride=1, bias=True))
 		if self.use_bn:
-			cnn_layers.append(nn.BatchNorm2d(self.n_classes))
+			cnn_layers.append(nn.BatchNorm2d(32))
 		cnn_layers.append(nn.ReLU())
 
 		cnn_layers.append(hexagdly.Conv2d(in_channels=32, out_channels=32, 
@@ -140,7 +143,7 @@ class GridNetHex(GridNet):
 		cnn_layers.append(hexagdly.Conv2d(in_channels=32, out_channels=32, 
 			kernel_size=1, stride=1, bias=True))
 		if self.use_bn:
-			cnn_layers.append(nn.BatchNorm2d(self.n_classes))
+			cnn_layers.append(nn.BatchNorm2d(32))
 		cnn_layers.append(nn.ReLU())
 
 		cnn_layers.append(hexagdly.Conv2d(in_channels=32, out_channels=self.n_classes, 
