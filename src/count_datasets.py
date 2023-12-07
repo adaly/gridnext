@@ -1,4 +1,5 @@
 import re
+import gzip
 import numpy as np
 import pandas as pd
 import torch
@@ -7,7 +8,7 @@ from tqdm import tqdm
 from scipy.sparse import issparse
 from torch.utils.data import Dataset, TensorDataset
 from sklearn.preprocessing import LabelEncoder
-from utils import pseudo_hex_to_oddr, read_annotated_starray, anndata_to_grids
+from utils import pseudo_hex_to_oddr, read_annotated_starray, anndata_to_grids, read_annotfile
 
 
 ############### Read full datasets into memory ###############
@@ -59,7 +60,7 @@ def load_count_grid_dataset(count_files, annot_files=None, select_genes=None,
         else:
             af = None
 
-        counts_grid, annots_grid, _, _ = read_annotated_starray(cf, af, select_genes=select_genes,
+        counts_grid, annots_grid = read_annotated_starray(cf, af, select_genes=select_genes,
             h_st=h_st, w_st=w_st, Visium=Visium)
         
         count_data_full.append(counts_grid)
@@ -76,62 +77,103 @@ def load_count_grid_dataset(count_files, annot_files=None, select_genes=None,
 class CountDataset(Dataset):
     # For independent classification of spots based on 1d expression vectors.
 
-    def __init__(self, count_files, annot_files=None, select_genes=None,
-        cfile_delim='\t', afile_delim='\t', verbose=False):
+    def __init__(self, count_files, annot_files=None, position_files=None, Visium=True,
+        select_genes=None, cfile_delim='\t', afile_delim=',', verbose=False):
+        '''
+        Parameters:
+        ----------
+        count_files: iterable of path
+            (genes x spots) count files for each array with unified gene list and ordering.
+        annot_files: iterable of path
+            one annotation file per ST array, in either:
+            - Loupe (Visium) format: barcode,annotation columns, or
+            - Splotch format: (spot_coords x annotations) binary one-hot matrix.
+        position_files: iterable of path
+            for Visium data, tissue position file output by Spaceranger mapping barcodes to array coordinates.
+        Visium: bool
+            Visium data (default) or classic ST data (False).
+        select_genes: iterable of str
+            list of genes to be subset from the full transcriptome.
+        cfile_delim: char
+            delimiter for count data.
+        afile_delim: char
+            delimiter for annotation file.
+        verbose: bool
+            print out information on un-annotated spots
+        '''
+
         super(CountDataset, self).__init__()
                 
         if annot_files is not None and not len(count_files) == len(annot_files):
             raise ValueError('Length of count_files and annot_files must match.')
 
-        self.cfile_delim = '\t'
-        self.afile_delim = '\t'
+        if Visium:
+            if annot_files is not None:
+                if position_files is None:
+                    raise ValueError('Must provide Spaceranger position files mapping barcodes to array locations.')
+                if len(position_files) != len(annot_files):
+                    raise ValueError('Number of Spaceranger position files does not match number of annotation files.')
+
+                # Map set of all unique annotations to integer values
+                all_annots = np.array([])
+                for afile, pfile in zip(annot_files, position_files):
+                    _, annot_strs = read_annotfile(afile, position_file=pfile, Visium=True, afile_delim=afile_delim)
+                    all_annots = np.union1d(all_annots, annot_strs)
+
+                le = LabelEncoder()
+                le.fit(all_annots)
+                self.classes = le.classes_
+
+        self.cfile_delim = cfile_delim
+        self.afile_delim = afile_delim
         
         self.countfile_mapping = []
         self.annotations = []
         self.cind_mapping = []
 
-        bad_annots = 0
         missing_annots = 0
         rxp_cstr = re.compile('\d+_\d+')
         
         # Construct unique integer index for all annotated patches
         for i, cf in enumerate(count_files):
-            with open(cf, 'r') as fh:
+            open_fn = gzip.open if cf.endswith('gz') else open 
+
+            with open_fn(cf, 'rt') as fh:
                 counts_header = next(fh).strip('\n').split(self.cfile_delim)
 
                 if annot_files is not None:
                     af = annot_files[i]
-                    adat = pd.read_csv(af, header=0, index_col=0, sep=self.afile_delim)
+                    if Visium:
+                        coord_strs, annot_strs = read_annotfile(af, position_file=position_files[i])
+                        annot_lbls = le.transform(annot_strs)
+                    else:
+                        coord_strs, annot_lbls = read_annotfile(af, Visium=False, sep=self.afile_delim)
 
-                    for cstr in adat.columns:
+                    adict = dict(zip(coord_strs, annot_lbls))
+
+                    for cstr in counts_header:
                         # Skip over unannotated or mis-annotated spots
-                        if not cstr in counts_header or np.sum(adat[cstr])==0:
+                        if not cstr in adict.keys():
                             if verbose:
-                                print(af, cstr, 'missing')
+                                print(af, cstr, 'missing annotation')
                             missing_annots += 1
                             continue
 
                         counts_ind = counts_header.index(cstr)
 
-                        if not np.sum(adat[cstr]) == 1:
-                            if verbose:
-                                print(af, cstr, 'improper annotation')
-                            bad_annots += 1
-                            continue
-
-                        self.annotations.append(np.argmax(adat[cstr]))
+                        self.annotations.append(adict[cstr])
                         self.countfile_mapping.append(cf)
                         self.cind_mapping.append(counts_ind)
                 else:
                     for counts_ind, cstr in enumerate(counts_header):
                         if rxp_cstr.match(cstr) is not None:
                             self.countfile_mapping.append(cf)
-                            self.cind_mapping.append(counts_ind+1)
+                            self.cind_mapping.append(counts_ind+1)  # index into count file; first column is gene name
         
         self.select_genes = select_genes
 
         if annot_files is not None:
-            print('%d un-annotated spots, %d mis-annotated spots' % (missing_annots, bad_annots))
+            print('%d un-annotated spots' % (missing_annots))
         
     def __len__(self):
         return len(self.cind_mapping)
@@ -173,15 +215,58 @@ class CountDataset(Dataset):
 class CountGridDataset(Dataset):
     # For registration of entire ST arrays based on 3d expression maps.
 
-    def __init__(self, count_files, annot_files=None, select_genes=None, 
-        h_st=78, w_st=64, Visium=True, cfile_delim='\t', afile_delim='\t'):
+    def __init__(self, count_files, annot_files=None, position_files=None, Visium=True, 
+        select_genes=None, h_st=78, w_st=64, cfile_delim='\t', afile_delim='\t'):
+        '''
+        Parameters:
+        ----------
+        count_files: iterable of path
+            (genes x spots) count files for each array with unified gene list and ordering.
+        annot_files: iterable of path
+            one annotation file per ST array, in either:
+            - Loupe (Visium) format: barcode,annotation columns, or
+            - Splotch format: (spot_coords x annotations) binary one-hot matrix.
+        position_files: iterable of path
+            for Visium data, tissue position file output by Spaceranger mapping barcodes to array coordinates.
+        Visium: bool
+            Visium data (default) or classic ST data (False).
+        select_genes: iterable of str
+            list of genes to be subset from the full transcriptome.
+        h_st: int
+            number of rows in ST array.
+        w_st: int
+            number of columns in ST array.
+        cfile_delim: char
+            delimiter for count data.
+        afile_delim: char
+            delimiter for annotation file.
+        '''
         super(CountGridDataset, self).__init__()
         
         if annot_files is not None and not len(count_files) == len(annot_files):
             raise ValueError('Length of count_files and annot_files must match.')
+
+        if Visium:
+            if annot_files is not None:
+                if position_files is None:
+                    raise ValueError('Must provide Spaceranger position files mapping barcodes to array locations.')
+                if len(position_files) != len(annot_files):
+                    raise ValueError('Number of Spaceranger position files does not match number of annotation files.')
+
+                # Map set of all unique annotations to integer values
+                all_annots = np.array([])
+                for afile, pfile in zip(annot_files, position_files):
+                    _, annot_strs = read_annotfile(afile, position_file=pfile, Visium=True)
+                    all_annots = np.union1d(all_annots, annot_strs)
+
+                self.le = LabelEncoder()
+                self.le.fit(all_annots)
+                self.classes = self.le.classes_
+                self.position_files = position_files
         
         self.count_files = count_files
         self.annot_files = annot_files
+        self.position_files = position_files
         self.select_genes = select_genes
 
         self.h_st = h_st
@@ -195,18 +280,25 @@ class CountGridDataset(Dataset):
         return len(self.count_files)
     
     def __getitem__(self, idx):
+        af, pf = None, None
         if self.annot_files is not None:
             af = self.annot_files[idx]
-        else:
-            af = None
+        if self.position_files is not None:
+            pf = self.position_files[idx]
 
-        counts_grid, annots_grid, _, _ = read_annotated_starray(self.count_files[idx], af, 
+        counts_grid, annots_grid = read_annotated_starray(self.count_files[idx], af, 
             select_genes=self.select_genes, h_st=self.h_st, w_st=self.w_st, Visium=self.Visium,
-            cfile_delim=self.cfile_delim, afile_delim=self.afile_delim)
+            position_file=pf, cfile_delim=self.cfile_delim, afile_delim=self.afile_delim)
 
         counts_grid = torch.from_numpy(counts_grid)
         counts_grid = counts_grid.permute(2, 0, 1)  # Reshape to channels-first ordering expected by PyTorch
         
+        # If string-formatted annotations provided (Loupe annotations), perform label encoding
+        if annots_grid.dtype != int:
+            annot_str_flat = annots_grid.flatten()
+            annot_int_flat = np.zeros_like(annot_str_flat, dtype=int)
+            annot_int_flat[annot_str_flat != ''] = self.le.transform(annot_str_flat[annot_str_flat != '']) + 1
+            annots_grid = np.reshape(annot_int_flat, annots_grid.shape)
         annots_grid = torch.from_numpy(annots_grid)
         
         return counts_grid.float(), annots_grid.long()

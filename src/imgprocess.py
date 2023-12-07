@@ -9,6 +9,8 @@ from torchvision import transforms
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
+from utils import visium_get_positions
+
 ################### CONSTANTS ##################
 
 VISIUM_H_ST = 78  # Visium arrays contain 78 rows (height)
@@ -36,14 +38,14 @@ def oddr_to_pseudo_hex(col, row):
 
 # Convert Loupe annotation files (barcode, AAR pairs) to Splotch annotation files (AARs x spots matrix).
 # Splotch does this conversion under the hood -- for now, GridNext expects Splotch formatted inputs.
-def to_splotch_annots(loupe_annotations, tpl_files, dest_dir, include_annots=None):
+def to_splotch_annots(loupe_annotations, spaceranger_dirs, dest_dir, include_annots=None):
 	'''
 	Parameters:
 	----------
 	loupe_annotations: iterable of path
-		paths to Loupe annotation files
-	tpl_files: iterable of path
-		paths to tissue_position_list.csv files output by spaceranger for tissues specified in loupe_annotations.
+		paths to Loupe annotation files.
+	spaceranger_dirs: iterable of Path
+		spaceranger directories corresponding to Loupe annotation files.
 	dest_dir: path
 		directory in which to save Splotch-formatted annotation files.
 	include_annots: list of str or None
@@ -60,10 +62,9 @@ def to_splotch_annots(loupe_annotations, tpl_files, dest_dir, include_annots=Non
 			annot_list.append(adat[adat.columns[1]][keep_inds])
 		include_annots = list(np.unique(np.concatenate(annot_list)))
 
-	for afile, tfile in zip(loupe_annotations, tpl_files):
+	for afile, srd in zip(loupe_annotations, spaceranger_dirs):
 		annots = pd.read_csv(afile, header=0, sep=",")
-		positions = pd.read_csv(tfile, index_col=0, header=None,
-			names=["in_tissue", "array_row", "array_col", "pixel_row", "pixel_col"])
+		positions = visium_get_positions(srd)
 		annot_matrix = np.zeros((len(include_annots), len(annots['Barcode'])), dtype=int)
 
 		positions_list = []
@@ -84,16 +85,15 @@ def to_splotch_annots(loupe_annotations, tpl_files, dest_dir, include_annots=Non
 
 # Extracts image patches centered at each Visium spot and returns as a 5D tensor for input to GridNet.
 #   (tensor is odd-right indexed, meaning odd-indexed rows should be shifted right to generate hex grid.)
-def grid_from_wsi_visium(fullres_imgfile, tissue_positions_listfile, patch_size=256, window_size=256, 
+def grid_from_wsi_visium(fullres_imgfile, spaceranger_dir, patch_size=256, window_size=256, 
 	preprocess_xform=None):
 	'''
 	Parameters:
 	----------
 	fullres_imgfile: path
 		full-resolution image of tissue on Visium array.
-	tissue_positions_listfile: path 
-		tissue_positions_list.csv exported by spaceranger, which maps Visium array indices to 
-		pixel coordinates in full-resolution image.
+	spaceranger_dir: path 
+		directory containing output of Spaceranger
 	patch_size: tuple of int
 		size of image patches in pixels.
 	window_size: tuple of int or float
@@ -123,8 +123,7 @@ def grid_from_wsi_visium(fullres_imgfile, tissue_positions_listfile, patch_size=
 	# Pad image such that no patches extend beyond image boundaries
 	img = np.pad(img, pad_width=[(w//2, w//2), (w//2, w//2), (0,0)], mode='edge')
 
-	df = pd.read_csv(tissue_positions_listfile, sep=",", header=None, 
-		names=['barcode', 'in_tissue', 'array_row', 'array_col', 'px_row', 'px_col'])
+	df = visium_get_positions(spaceranger_dir)
 	# Only consider spots that are within the tissue area.
 	df = df[df['in_tissue']==1]
 
@@ -134,7 +133,7 @@ def grid_from_wsi_visium(fullres_imgfile, tissue_positions_listfile, patch_size=
 	for i in range(len(df)):
 		row = df.iloc[i]
 		x_ind, y_ind = pseudo_hex_to_oddr(row['array_col'], row['array_row'])
-		x_px, y_px = df.iloc[i]['px_col'], df.iloc[i]['px_row']
+		x_px, y_px = df.iloc[i]['pxl_col_in_fullres'], df.iloc[i]['pxl_row_in_fullres']
 
 		# Account for image padding
 		x_px += w//2
@@ -162,48 +161,56 @@ def grid_from_wsi_visium(fullres_imgfile, tissue_positions_listfile, patch_size=
 
 # For a sequence of samples, extracts patches centered around each Visium spot and save as JPG files 
 #   in directory structure expected by Dataset classes for use with GridNet
-def save_visium_patches(wsi_files, tpl_files, dest_dir, patch_size=256, window_size=None):
+def save_visium_patches(img_file, spaceranger_dir, dest_dir, patch_size=256, window_size=None):
 	'''
 	Parameters:
 	-----------
 	wsi_files: iterable of path
 		paths to WSI files used in Visium pipeline.
-	tpl_files: iterable of path
-		tissue_positions_list.csv files exported by spaceranger for wsi_files.
+	spaceranger_dirs: iterable of path
+		output from Spaceranger associated with wsi_files.
 	dest_dir: path
-		top-level directory in which to save image patch data.
+		top-level directory in which to save image patch data for all arrays (separate subdir will
+		be created for each if it doesn't already exist).
 	patch_size: tuple of int
 		size of image patches in pixels.
 	window_size: tuple of int or float
 		if different from patch_size, size of patches to be extracted before resizing to patch_size.
 		If int, size of image region to be extracted in pixels. If float, fraction of patch_size.
 	'''
+
+	# Generate patch grid tensor (H_ST, W_ST, C, H_p, W_p)
+	patch_grid = grid_from_wsi_visium(img_file, spaceranger_dir, patch_size=patch_size, 
+		window_size=window_size)
+
+	if not os.path.exists(dest_dir):
+		os.mkdir(dest_dir)
+
+	slide = str(Path(spaceranger_dir).stem)
+
+	# Save all foreground patches as separate JPG files.
+	for oddr_x in range(VISIUM_W_ST):
+		for oddr_y in range(VISIUM_H_ST):
+			if patch_grid[oddr_y, oddr_x].max() > 0:
+				patch = patch_grid[oddr_y, oddr_x]
+				patch = np.moveaxis(patch.data.numpy().astype(np.uint8), 0, 2)  # switch to chanels-last
+
+				# Save with Visium indexing to facilitate matching to count data
+				x_vis, y_vis = oddr_to_pseudo_hex(oddr_x, oddr_y)
+				Image.fromarray(patch).save(os.path.join(dest_dir, "%s_%d_%d.jpg" % (slide, x_vis, y_vis)), "JPEG")
+
+# Multi-array analog of above; separate sub-directories created in dest_dir for each array.
+def save_visium_patches_all(wsi_files, spaceranger_dirs, dest_dir, patch_size=256, window_size=None):
 	if not os.path.isdir(dest_dir):
 		os.mkdir(dest_dir)
 
-	for img_file, tpl_file in zip(wsi_files, tpl_files):
-		print("%s : %s ..." % (img_file, tpl_file))
+	for img_file, srd in zip(wsi_files, spaceranger_dirs):
+		print("%s : %s ..." % (img_file, srd))
 
 		# Extract name of current tissue
 		slide = str(Path(img_file).stem)
-
-		# Generate patch grid tensor (H_ST, W_ST, C, H_p, W_p)
-		patch_grid = grid_from_wsi_visium(img_file, tpl_file, patch_size=patch_size, window_size=window_size)
-
-		if not os.path.isdir(os.path.join(dest_dir, "%s" % slide)):
-			os.mkdir(os.path.join(dest_dir, "%s" % slide))
-
-		# Save all foreground patches as separate JPG files.
-		for oddr_x in range(VISIUM_W_ST):
-			for oddr_y in range(VISIUM_H_ST):
-				if patch_grid[oddr_y, oddr_x].max() > 0:
-					patch = patch_grid[oddr_y, oddr_x]
-					patch = np.moveaxis(patch.data.numpy().astype(np.uint8), 0, 2)  # switch to chanels-last
-
-					# Save with Visium indexing to facilitate matching to count data
-					x_vis, y_vis = oddr_to_pseudo_hex(oddr_x, oddr_y)
-					Image.fromarray(patch).save(
-						os.path.join(dest_dir, "%s" % slide, "%d_%d.jpg" % (x_vis, y_vis)), "JPEG")
+		dest_subdir = os.path.join(dest_dir, slide)
+		save_visium_patches(img_file, srd, dest_subdir, patch_size, window_size)
 
 
 if __name__ == '__main__':
@@ -216,10 +223,10 @@ if __name__ == '__main__':
 	meta = pd.read_csv(os.path.join(data_dir, 'Splotch_Metadata.tsv'), header=0, sep='\t')
 
 	wsi_files = [os.path.join(data_dir, imfile.replace('HE', 'HE_ccast')) for imfile in meta['Image file']]
-	tpl_files = [os.path.join(data_dir, srd + '/outs/spatial/tissue_positions_list.csv') for srd in meta['Spaceranger output']]
+	spaceranger_dirs = meta['Spaceranger output'].values
 
 	dest_dir = os.path.join(data_dir, 'patchdata')
-	save_visium_patches(wsi_files, tpl_files, dest_dir)
+	save_visium_patches(wsi_files, spaceranger_dirs, dest_dir)
 
 	#annot_files = [os.path.join(data_dir, afile) for afile in meta['Annotation file']]
 	#to_splotch_annots(annot_files, tpl_files, os.path.join(data_dir, 'annotations_splotch'))

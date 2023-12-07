@@ -23,13 +23,13 @@ class PatchDataset(Dataset):
 		'''
 		Parameters:
 		----------
-		img_files: iterable of str
+		img_files: iterable of path
 			one sub-directory per ST array, each containing spot images named as "*_[array_xcoord]_[array_ycoord].[img_ext]"
-		annot_files: iterable of str
+		annot_files: iterable of path
 			one annotation file per ST array, in either:
 			- Loupe (Visium) format: barcode, annotation columns
 			- classic ST format: array_coords x annotations binary matrix
-		position_files: iterable of str
+		position_files: iterable of path
 			for Visium data, tissue position file output by Spaceranger mapping spatial barcodes to array/pixel coordinates
 		Visium: bool
 			Visium data (default) or classic ST data
@@ -58,7 +58,7 @@ class PatchDataset(Dataset):
 				# Map set of all unique annotations to integer values
 				all_annots = np.array([])
 				for afile, pfile in zip(annot_files, position_files):
-					_, annot_strs = read_annotfile(afile, pfile, Visium=True, afile_delim=afile_delim)
+					_, annot_strs = read_annotfile(afile, position_file=pfile, Visium=True)
 					all_annots = np.union1d(all_annots, annot_strs)
 
 				le = LabelEncoder()
@@ -92,7 +92,7 @@ class PatchDataset(Dataset):
 					if cstr not in adict.keys():
 						if verbose:
 							print(cstr, 'image patch missing annotation (skipping)')
-							continue
+						continue
 
 					self.annotations.append(adict[cstr])
 					self.imgpath_mapping.append(imfile)
@@ -128,13 +128,13 @@ class PatchGridDataset(Dataset):
 		'''
 		Parameters:
 		----------
-		img_files: iterable of str
+		img_files: iterable of path
 			one sub-directory per ST array, each containing spot images named as "*_[array_xcoord]_[array_ycoord].[img_ext]"
-		annot_files: iterable of str
+		annot_files: iterable of path
 			one annotation file per ST array, in either:
 			- Loupe (Visium) format: barcode, annotation columns
 			- classic ST format: array_coords x annotations binary matrix
-		position_files: iterable of str
+		position_files: iterable of path
 			for Visium data, tissue position file output by Spaceranger mapping spatial barcodes to array/pixel coordinates
 		Visium: bool
 			Visium data (default) or classic ST data
@@ -150,6 +150,8 @@ class PatchGridDataset(Dataset):
 			number of columns in ST array
 		'''
 
+		super(PatchGridDataset, self).__init__()
+
 		if annot_files is not None and len(img_files) != len(annot_files):
 			raise ValueError('Length of img_files and annot_files must match.')
 
@@ -161,7 +163,11 @@ class PatchGridDataset(Dataset):
 					raise ValueError('Number of Spaceranger position files does not match number of annotation files.')
 
 				# Map set of all unique annotations to integer values
-				all_annots = np.concatenate([pd.read_csv(afile, header=0, index_col=0).iloc[:,0] for afile in annot_files])
+				all_annots = np.array([])
+				for afile, pfile in zip(annot_files, position_files):
+					_, annot_strs = read_annotfile(afile, position_file=pfile, Visium=True)
+					all_annots = np.union1d(all_annots, annot_strs)
+
 				self.le = LabelEncoder()
 				self.le.fit(all_annots)
 				self.classes = self.le.classes_
@@ -219,7 +225,8 @@ class PatchGridDataset(Dataset):
 
 				if self.annot_files is not None:
 					cstr = '%d_%d' % (a_x, a_y)
-					annots_grid[y, x] = adict[cstr] + 1 # 0 reserved for background
+					if cstr in adict.keys():
+						annots_grid[y, x] = adict[cstr] + 1 # 0 reserved for background
 				patch_grid[y, x] = patch
 
 		return patch_grid.float(), annots_grid.long()
