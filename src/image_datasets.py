@@ -104,7 +104,7 @@ class PatchDataset(Dataset):
 		else:
 			self.preprocess = img_transforms
 
-		if annot_files is not None:
+		if annot_files is not None and verbose:
 			print('%d mis/un-annotated spots, %d spots missing image data' % (bad_annots, missing_img))
 
 	def __len__(self):

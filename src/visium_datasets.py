@@ -15,6 +15,38 @@ from count_datasets import CountDataset, CountGridDataset
 def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spatial=True,
 	annot_files=None, fullres_image_files=None, count_suffix=".unified.tsv.gz", minimum_detection_rate=0.02,
 	patch_size_px=128, img_transforms=None, select_genes=None):
+	'''
+	Parameters:
+	----------
+	spaceranger_dirs: iterable of path
+		path to spaceranger output directories for each Visium array in dataset
+	use_count: bool
+		whether to employ count data
+	use_image: bool
+		whether to employ image data
+	spatial: bool
+		treat entire Visium arrays as individual inputs; otherwise learn independently over spots
+	annot_files: iterable of path, or None
+		path to Loupe annotation file for each array in dataset; None for un-annotated data
+	fullres_image_files: iterable of path, or None
+		path to full-resolution image file for each Visium array (required if use_image=True)
+	count_suffix: str
+		file suffix for generated unified count files
+	minimum_detection_rate: float, or None
+		discard genes detected in fewer than this fraction of spots across the dataset
+	patch_size_px: int
+		width of patches, in pixels, to be extracted at each spot location
+	img_transforms: torchvision.transform
+		transform to be applied to each image patch upon loading (e.g., normalization for pretrained network)
+	select_genes: iterable of str
+		list of genes to subset from the full transcriptome
+
+	Returns:
+	-------
+	PatchDataset or PatchGridDataset or CountDataset or CountGridDataset or MultiModalDataset or
+		MultiModalGridDataset
+		appropriate subclass of torch.utils.data.Dataset for learning task
+	'''
 		
 	if not (use_count or use_image):
 		raise ValueError("Must utilize at least one data modality")
@@ -133,7 +165,6 @@ if __name__ == '__main__':
 	fullres_image_files = sorted(glob.glob(os.path.join(data_dir, 'fullres_images', '*.jpg')))
 	annot_files = sorted(glob.glob(os.path.join(data_dir, 'annotations', '*.csv')))
 
-	'''
 	# Image-only datasets	
 	gdat = create_visium_dataset(spaceranger_dirs, use_count=False, use_image=True, annot_files=annot_files,
 		fullres_image_files=fullres_image_files, spatial=True)
@@ -146,10 +177,9 @@ if __name__ == '__main__':
 		fullres_image_files=fullres_image_files, spatial=False)
 	print(len(pdat))
 	x, y = pdat[0]
-	print(x)
+	print(x.shape)
 	print(y)
 	print(pdat.imgpath_mapping[0])
-	'''
 
 	# Count-only datasets
 	pdat = create_visium_dataset(spaceranger_dirs, use_count=True, use_image=False, annot_files=annot_files,
@@ -157,7 +187,7 @@ if __name__ == '__main__':
 	print(len(pdat))
 	x,y = pdat[0]
 	print(x, x.min(), x.max())
-	print(y)
+	print(y, y)
 
 	gdat = create_visium_dataset(spaceranger_dirs, use_count=True, use_image=False, annot_files=annot_files,
 		spatial=True)
