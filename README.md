@@ -8,6 +8,22 @@ Extending the work of [GridNet](https://github.com/flatironinstitute/st_gridnet)
 
 The GridNext library additionally provides functionality for interfacing directly with data from 10x Genomics' Visium platform (through the outputs of [Spaceranger](https://www.10xgenomics.com/support/software/space-ranger/analysis/outputs/output-overview) and [Loupe](https://www.10xgenomics.com/support/software/loupe-browser/tutorials/introduction/lb-navigation-for-spatial) for count and annotation data, respectively), as well as guidelines for working with custom data in popular formats such as HDF5-formatted AnnData.
 
+## Installation
+
+GridNext can be installed by pip:
+
+```
+pip install git+https://github.com/adaly/gridnext/
+```
+
+Or the source code can manually be downloaded and compiled:
+
+```
+git clone https://github.com/adaly/gridnext.git
+cd gridnext
+pip install .
+```
+
 ## Importing data
 
 The GridNext library provides extensions of the PyTorch `Dataset` class for working with ST data:
