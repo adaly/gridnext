@@ -123,4 +123,19 @@ grid_dat = AnnGridDataset(adata, obs_label=obs_label, use_pcs=use_pcs, obs_arr=o
 
 ### Custom data
 
-The aforementioned dataset classes can be instantiated directly by providing count, image, and annotation data in the aforementioned file formats:
+The aforementioned dataset classes (`CountDataset`/`CountGridDataset`, `PatchDataset`/`PatchGridDataset`, `MultiModalDataset`/`MultiModalGridDataset`) can be instantiated directly by providing count, image, and annotation data in the aforementioned file formats:
+- **Count data**: one (genes x spots) matrix per array, stored in tab-delimited format (other delimiters can be used with `cfile_delim` keyword argument). First column should store gene names, which should be standardized across all arrays, and first column should store spot coordinates in `[x]_[y]` format.
+- **Image data**: one directory per array containing JPEG-formatted image files (other file formats can be used with `img_ext` keyword argument) extracted from each spatial measurement location. Image patch file names should end with `[x]_[y].[img_ext]` to store spatial information.
+- **Annotation data**: one (categories x spots) one-hot encoded (exactly one "1" per row) binary annotation matrix per array, stored in CSV format (other delimiters can be used with `afile_delim` keyword argument). First column should store category names, which should be standardized across all arrays, and first column should store spot coordinates in `[x]_[y]` format. If Visium data are being passed (`Visium=True`), one can alternately pass paired lists of Loupe annotation files and Spaceranger position files in lieu of this custom format.
+
+```
+from gridnext.count_datasets import CountDataset, CountGridDataset
+from gridnext.image_datasets import PatchDataset, PatchGridDataset
+from gridnext.multimodal_datasets import MultiModalDataset, MultiModalGridDataset
+```
+
+## Model instantiation
+
+## Model training
+
+## Output visualization
