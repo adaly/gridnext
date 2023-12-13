@@ -6,7 +6,23 @@ Extending the work of [GridNet](https://github.com/flatironinstitute/st_gridnet)
 1. *f* -- spot classifier applied independently to each measurement
 2. *g* -- convolutional correction network applied on the output of *f* incorporating spatial information at a bandwidth dictated by network depth/kernel width.
 
-The GridNext library additionally provides functionality for interfacing directly with data from 10x Genomics' Visium platform (through the outputs of [Spaceranger](https://www.10xgenomics.com/support/software/space-ranger/analysis/outputs/output-overview) and [Loupe](https://www.10xgenomics.com/support/software/loupe-browser/tutorials/introduction/lb-navigation-for-spatial) for count and annotation data, respectively), as well as guidelines for working with custom data in popular formats such as HDF5-formatted AnnData.
+The GridNext library additionally provides functionality for interfacing directly with data from 10x Genomics' Visium platform (through the outputs of [Spaceranger](https://www.10xgenomics.com/support/software/space-ranger/analysis/outputs/output-overview) and [Loupe](https://www.10xgenomics.com/support/software/loupe-browser/tutorials/introduction/lb-navigation-for-spatial) for count and annotation data, respectively), as well as guidelines for working with custom data in popular formats such as AnnData.
+
+## Installation
+
+GridNext can be installed by pip:
+
+```
+pip install git+https://github.com/adaly/gridnext/
+```
+
+Or the source code can manually be downloaded and compiled:
+
+```
+git clone https://github.com/adaly/gridnext.git
+cd gridnext
+pip install .
+```
 
 ## Importing data
 
@@ -53,7 +69,15 @@ Optional arguments:
 - `minimum_detection_rate` -- after generating unified gene list, drop genes expressed in fewer than this fraction of spots
 - `select_genes` -- list of gene names (ENSEMBL if using default 10x reference transcriptome) to subset for analysis
 
-For **image data**
+Alternatively, if you are working with **only count data**, it may be faster to store your Visium data in an AnnData object using `create_visium_anndata`:
+```
+from gridnext.visium_datasets import create_visium_anndata
+
+adata = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=PATH_TO_SAVE_ANNDATA)
+```
+and then follow the [instructions for loading AnnData objects](#anndata-objects).
+
+For **image data**:
 ```
 patch_size = 128
 
@@ -73,8 +97,53 @@ The first time this runs for a given dataset, it will create a sub-directory in 
 Optional arguments:
 - `img_transforms` -- a `torchvision.transforms` object (or a [composition](https://pytorch.org/vision/0.9/transforms.html) thereof) to be applied to any image patch prior to accession through the Dataset class.
 
-### AnnData (count only)
+### AnnData objects
+
+GridNext provides functionality to load spatially resolved count data into memory from [AnnData](https://anndata.readthedocs.io/en/latest/). The AnnData object must be structured as such:
+- For spatially-resolved data, `adata.obs` **must** have columns named `x` and `y` for spatial coordinate data.
+- Principal components of count data may be stored in `adata.layers['X_pca']
+
+There are two methods of loading such data:
+
+1. For **smaller** datasets (that can be loaded into memory at once), the following functions yield `TensorDataset` objects with fast accession times:
+```
+import scanpy as sc
+from gridnext.count_datasets import anndata_to_tensordataset, anndata_arrays_to_tensordataset
+
+adata = sc.read_h5ad(...)  # load AnnData object
+obs_label = 'AARs'         # column in adata.obs containing spot annotations
+obs_arr = 'vis_arr'        # column in adata.obs.containing array names (for multi-array ST data)
+h_st, w_st = 78, 64        # height and width of ST array (i.e., number of rows and columns)
+vis_coords = True          # whether x and y coordinates are in Visium pseudo-hex (True) or cartesian coordinates (False)
+use_pcs = False            # whether to use principal components (adata.layers['X_pca']) instead of (raw) count data (adata.X)
+
+spot_dat = anndata_to_tensordata(adata, obs_label=obs_label, use_pcs=use_pcs)
+grid_dat = anndata_arrays_to_tensordata(adata, obs_label=obs_label, use_pcs=use_pcs, obs_arr=obs_arr, h_st=h_st, w_st=w_st, vis_coords=vis_coords)
+```
+
+2. For **larger** datasets that can't fit into memory, we provide subclasses of PyTorch `Dataset` objects with lazy loading (slower accession times):
+```
+from gridnext.count_datasets import AnnDataset, AnnGridDataset
+
+spot_dat = AnnDataset(adata, obs_label=obs_label, use_pcs=use_pcs)
+grid_dat = AnnGridDataset(adata, obs_label=obs_label, use_pcs=use_pcs, obs_arr=obs_arr, h_st=h_st, w_st=w_st, vis_coords=vis_coords)
+```
 
 ### Custom data
 
-The aforementioned dataset classes can be instantiated directly by providing count, image, and annotation data in the aforementioned file formats:
+The aforementioned dataset classes (`CountDataset`/`CountGridDataset`, `PatchDataset`/`PatchGridDataset`, `MultiModalDataset`/`MultiModalGridDataset`) can be instantiated directly by providing count, image, and annotation data in the aforementioned file formats:
+- **Count data**: one (genes x spots) matrix per array, stored in tab-delimited format (other delimiters can be used with `cfile_delim` keyword argument). First column should store gene names, which should be standardized across all arrays, and first column should store spot coordinates in `[x]_[y]` format.
+- **Image data**: one directory per array containing JPEG-formatted image files (other file formats can be used with `img_ext` keyword argument) extracted from each spatial measurement location. Image patch file names should end with `[x]_[y].[img_ext]` to store spatial information.
+- **Annotation data**: one (categories x spots) one-hot encoded (exactly one "1" per row) binary annotation matrix per array, stored in CSV format (other delimiters can be used with `afile_delim` keyword argument). First column should store category names, which should be standardized across all arrays, and first column should store spot coordinates in `[x]_[y]` format. If Visium data are being passed (`Visium=True`), one can alternately pass paired lists of Loupe annotation files and Spaceranger position files in lieu of this custom format.
+
+```
+from gridnext.count_datasets import CountDataset, CountGridDataset
+from gridnext.image_datasets import PatchDataset, PatchGridDataset
+from gridnext.multimodal_datasets import MultiModalDataset, MultiModalGridDataset
+```
+
+## Model instantiation
+
+## Model training
+
+## Output visualization
