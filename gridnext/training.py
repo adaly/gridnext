@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 
 # Training loop for spot classification
-def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs, 
+def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs=10, 
     outfile=None, display=False):
     since = time.time()
 
@@ -94,7 +94,7 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs,
     return model, val_history, train_history
     
 # Training loop for grid registration
-def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=25, outfile=None, 
+def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=10, outfile=None, 
     f_opt=None, accum_iters=1):
     since = time.time()
 
