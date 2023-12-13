@@ -10,3 +10,4 @@ Pillow>=10.1.0
 tqdm>=4.66.1
 hexagdly>=2.0.2
 torch_geometric>=2.4.0
+scanpy>=1.9.6
