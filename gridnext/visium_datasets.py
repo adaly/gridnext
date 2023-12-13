@@ -5,6 +5,7 @@ import glob
 import scipy.io
 import numpy as np
 import pandas as pd
+import anndata as ad
 from pathlib import Path
 
 from gridnext.utils import visium_get_positions, visium_find_position_file
@@ -12,6 +13,8 @@ from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST
 from gridnext.image_datasets import PatchDataset, PatchGridDataset
 from gridnext.count_datasets import CountDataset, CountGridDataset
 
+
+# Creates and returns an appropriate Dataset subclass for the modalities specified
 def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spatial=True,
 	annot_files=None, fullres_image_files=None, count_suffix=".unified.tsv.gz", minimum_detection_rate=0.02,
 	patch_size_px=128, img_transforms=None, select_genes=None):
@@ -104,34 +107,24 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 
 	# Multimodal data
 	else:
-		pass
+		raise NotImplementedError
 
-
-
+# Generate unified countfiles containing same genes in same order from a list of spaceranger directories
 def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=None):
 	# Assemble count matrix dataframe from components in output directories:
 	frames = []
 	count_files = []
 	for srd in spaceranger_dirs:
-
-		matrix_dir = os.path.join(srd, "outs/filtered_feature_bc_matrix/")
-		mat = scipy.io.mmread(os.path.join(matrix_dir, "matrix.mtx.gz"))
-
-		features_path = os.path.join(matrix_dir, "features.tsv.gz")
-		feature_ids = [row[0] for row in csv.reader(gzip.open(features_path, "rt"), delimiter="\t")]
-
-		barcodes_path = os.path.join(matrix_dir, "barcodes.tsv.gz")
-		barcodes = [row[0] for row in csv.reader(gzip.open(barcodes_path, "rt"), delimiter="\t")]
+		df = read_feature_matrix(srd)
 
 		positions = visium_get_positions(srd)
-
 		positions_list = []
-		for b in barcodes:
+		for b in df.columns:
 			xcoor = positions.loc[b,'array_col']
 			ycoor = positions.loc[b,'array_row']
 			positions_list.append('%d_%d' % (xcoor, ycoor))
+		df.columns = positions_list
 
-		df = pd.DataFrame.sparse.from_spmatrix(mat, index=feature_ids, columns=positions_list)
 		frames.append(df)
 		count_files.append(os.path.join(srd, Path(srd).name))
   
@@ -157,6 +150,58 @@ def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=
 	for filename in result.columns.levels[0]:
 		result[filename].to_csv(filename+suffix,sep='\t',index=True)
 
+def read_feature_matrix(srd):
+	matrix_dir = os.path.join(srd, "outs/filtered_feature_bc_matrix/")
+	mat = scipy.io.mmread(os.path.join(matrix_dir, "matrix.mtx.gz"))
+
+	features_path = os.path.join(matrix_dir, "features.tsv.gz")
+	feature_ids = [row[0] for row in csv.reader(gzip.open(features_path, "rt"), delimiter="\t")]
+
+	barcodes_path = os.path.join(matrix_dir, "barcodes.tsv.gz")
+	barcodes = [row[0] for row in csv.reader(gzip.open(barcodes_path, "rt"), delimiter="\t")]
+
+	df = pd.DataFrame.sparse.from_spmatrix(mat, index=feature_ids, columns=barcodes)
+	return df 
+
+# Create an AnnData object containing the annotated count data from multiple Visium arrays
+def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
+	adata_list = []
+
+	for i, srd in enumerate(spaceranger_dirs):
+		df_counts = read_feature_matrix(srd).T
+		df_pos = visium_get_positions(srd)
+
+		barcodes = df_pos[df_pos['in_tissue']==1].index
+
+		if annot_files is not None:
+			df_annot = pd.read_csv(annot_files[i], header=0, index_col=0, sep=',')
+			df_annot = df_annot.loc[df_annot.iloc[:,0] != '']  # filter un-annotated spots
+			barcodes = barcodes.intersection(df_annot.index)
+
+		arr = Path(srd).stem
+
+		obs = pd.DataFrame({
+			'x':df_pos.loc[barcodes, 'array_col'], 
+			'y':df_pos.loc[barcodes, 'array_row'],
+			'x_px':df_pos.loc[barcodes, 'pxl_col_in_fullres'],
+			'y_px':df_pos.loc[barcodes, 'pxl_row_in_fullres'],
+			'array': arr
+		})
+		if annot_files is not None:
+			obs['annotation'] = df_annot.loc[barcodes].iloc[:,0]
+		obs.index = ['%s_%d_%d' % (arr,x,y) for x,y in zip(obs['x'].values, obs['y'].values)]
+
+		adata = ad.AnnData(X=df_counts.loc[barcodes, :].values, 
+			var=pd.DataFrame(index=df_counts.columns), 
+			obs=obs)
+		adata_list.append(adata)
+
+	adata_all = ad.concat(adata_list, axis=0, join='outer')
+
+	if destfile is not None:
+		adata_all.write(destfile, compression='gzip')
+
+	return adata_all
 
 
 if __name__ == '__main__':
@@ -165,6 +210,13 @@ if __name__ == '__main__':
 	fullres_image_files = sorted(glob.glob(os.path.join(data_dir, 'fullres_images', '*.jpg')))
 	annot_files = sorted(glob.glob(os.path.join(data_dir, 'annotations', '*.csv')))
 
+	print(spaceranger_dirs)
+	print(annot_files)
+
+	#adat1 = create_visium_anndata(spaceranger_dirs, destfile='../data/adata_unannot.h5ad')
+	adat2 = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile='../data/adata_annot.h5ad')
+
+	'''
 	# Image-only datasets	
 	gdat = create_visium_dataset(spaceranger_dirs, use_count=False, use_image=True, annot_files=annot_files,
 		fullres_image_files=fullres_image_files, spatial=True)
@@ -199,3 +251,4 @@ if __name__ == '__main__':
 	#data_dir = '/Volumes/Aidan_NYGC/Visium/Human_SC_20230419/'
 	#spaceranger_dirs = glob.glob(os.path.join(data_dir, 'spaceranger', '*'))
 	#create_visium_dataset(spaceranger_dirs, use_count=True, minimum_detection_rate=0.02)
+	'''

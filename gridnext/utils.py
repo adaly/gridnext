@@ -187,6 +187,13 @@ def anndata_to_grids(adata, labels, h_st=78, w_st=64, use_pcs=False, vis_coords=
         counts_grid = torch.zeros((use_pcs, h_st, w_st))
     labels_grid = torch.zeros((h_st, w_st))
 
+    if use_pcs:
+        dat = adata.obsm['X_pca'][:,:use_pcs]
+    elif sparse.issparse(adata.X):
+        dat = adata.X.todense()
+    else:
+        dat = adata.X
+
     for i, (x,y) in enumerate(zip(adata.obs.x, adata.obs.y)):
         if vis_coords:
             if x % 2 == 1:
@@ -195,12 +202,15 @@ def anndata_to_grids(adata, labels, h_st=78, w_st=64, use_pcs=False, vis_coords=
                 x = x//2
         labels_grid[y,x] = labels[i] + 1
 
+        '''
         if use_pcs:
             counts_grid[:,y,x] = torch.tensor(adata.obsm['X_pca'][i,:use_pcs])
         elif sparse.issparse(adata.X):
             counts_grid[:,y,x] = torch.tensor(np.array(adata.X[i,:].todense()))
         else:
             counts_grid[:,y,x] = torch.tensor(adata.X[i,:])
+        '''
+        counts_grid[:,y,x] = torch.tensor(dat[i,:])
         
     return counts_grid.float(), labels_grid.long()
 
