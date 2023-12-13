@@ -88,6 +88,7 @@ class DenseNet(nn.Module):
         num_classes (int) - number of classification classes
         small_inputs (bool) - set to True if images are 32x32. Otherwise assumes images are larger.
         efficient (bool) - set to True to use checkpointing. Much more memory efficient, but slower.
+        classify (bool) - return output of final classification layer; otherwise return penultimate features.
     """
     def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5,
                  num_init_features=24, bn_size=4, drop_rate=0,

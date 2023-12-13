@@ -308,6 +308,16 @@ class CountGridDataset(Dataset):
 
 class AnnDataset(Dataset):
     def __init__(self, adata, obs_label, use_pcs=False):
+        '''
+        Parameters:
+        ----------
+        adata: AnnData
+            count data in AnnData format
+        obs_label: str
+            column in adata.obs containing spot labels for learning
+        use_pcs: int or None
+            when not None, use the first n_pcs from adata.layers['X_pca']
+        '''
         super(AnnDataset, self).__init__()
         self.adata = adata
         self.use_pcs = use_pcs
@@ -315,6 +325,7 @@ class AnnDataset(Dataset):
 
         self.le = LabelEncoder()
         self.labels = self.le.fit_transform(adata.obs[obs_label])
+        self.classes = le.classes_
     
     def __len__(self):
         return len(self.adata)
@@ -332,9 +343,24 @@ class AnnDataset(Dataset):
 # Return a TensorDataset matching spot count data (either from X or X_pca) to obs_label data from adata.obs.
 # (MUCH faster than AnnDataset)
 def anndata_to_tensordataset(adata, obs_label, use_pcs=False):
+    '''
+    Parameters:
+    ----------
+    adata: AnnData
+        count data in AnnData format; adata.obs must have columns 'x' and 'y' for spatial information
+    obs_label: str
+        column in adata.obs containing spot labels for learning
+
+    Returns:
+    -------
+    tdat: TensorDataset
+        TensorDataset of length n_spots pairing 1D spot transcriptomes and integer-coded annotation tensors
+    classes: list of str
+        key for decoding integer annotations
+    '''
+
     le = LabelEncoder()
     labels = le.fit_transform(adata.obs[obs_label])
-    print(le.classes_)
     
     if use_pcs:
         count_data = adata.obsm['X_pca'][:, :use_pcs]
@@ -344,8 +370,8 @@ def anndata_to_tensordataset(adata, obs_label, use_pcs=False):
     if issparse(count_data):
         count_data = count_data.todense()
         
-    return TensorDataset(torch.tensor(count_data).float(),
-                         torch.tensor(labels).long())
+    tdat = TensorDataset(torch.tensor(count_data).float(), torch.tensor(labels).long())
+    return tdat, le.classes_ 
 
 
 # Subset AnnData object by obs_arr (e.g., Visium array ID)
@@ -353,6 +379,24 @@ def anndata_to_tensordataset(adata, obs_label, use_pcs=False):
 class AnnGridDataset(AnnDataset):
     def __init__(self, adata, obs_label, obs_arr, h_st=78, w_st=64, use_pcs=False, 
                  vis_coords=True):
+        '''
+        Parameters:
+        ----------
+        adata: AnnData
+            count data in AnnData format; adata.obs must have columns 'x' and 'y' for spatial information
+        obs_label: str
+            column in adata.obs containing spot labels for learning
+        obs_arr: str
+            column in adata.obs denoting array of origin for each observation (spot)
+        h_st: int
+            number of rows in ST array
+        w_st: int
+            number of columns in ST array
+        use_pcs: int or None
+            when not None, use the first n_pcs from adata.layers['X_pca']
+        vis_coords: bool
+            whether to interpret the coordinates in adata.obs as Visium array coordinates (pseudo-hex)
+        '''
         super(AnnGridDataset, self).__init__(adata, obs_label, use_pcs)
         
         self.h_st = h_st
@@ -375,9 +419,34 @@ class AnnGridDataset(AnnDataset):
 
     
 # Load full datset into memory as TensorDataset -- slow instantiation
-# -> SLOW instantiation (~20s/array), FAST accession (<1s)
+# -> SLOW instantiation (~2s/array), FAST accession (<1s)
 def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64, 
                                     use_pcs=False, vis_coords=True):
+    '''
+    Parameters:
+    ----------
+    adata: AnnData
+        count data in AnnData format; adata.obs must have columns 'x' and 'y' for spatial information
+    obs_label: str
+        column in adata.obs containing spot labels for learning
+    obs_arr: str
+            column in adata.obs denoting array of origin for each observation (spot)
+    h_st: int
+        number of rows in ST array
+    w_st: int
+        number of columns in ST array
+    use_pcs: int or None
+        when not None, use the first n_pcs from adata.layers['X_pca']
+    vis_coords: bool
+        whether to interpret the coordinates in adata.obs as Visium array coordinates (pseudo-hex)
+
+    Returns:
+    -------
+    tdat: TensorDataset
+        TensorDataset of length n_grids pairing 3D spatial transcriptomes and 2D integer-coded annotation tensors
+    classes: list of str
+        key for decoding integer annotations
+    '''
     le = LabelEncoder()
     labels = le.fit_transform(adata.obs[obs_label])
     
@@ -391,4 +460,5 @@ def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64,
         count_grids.append(cg)
         label_grids.append(lg)
             
-    return TensorDataset(torch.stack(count_grids), torch.stack(label_grids))
+    tdat = TensorDataset(torch.stack(count_grids), torch.stack(label_grids))
+    return tdat, le.classes_
