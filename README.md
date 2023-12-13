@@ -69,7 +69,15 @@ Optional arguments:
 - `minimum_detection_rate` -- after generating unified gene list, drop genes expressed in fewer than this fraction of spots
 - `select_genes` -- list of gene names (ENSEMBL if using default 10x reference transcriptome) to subset for analysis
 
-For **image data**
+Alternatively, if you are working with **only count data**, it may be faster to store your Visium data in an AnnData object using `create_visium_anndata`:
+```
+from gridnext.visium_datasets import create_visium_anndata
+
+adata = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=PATH_TO_SAVE_ANNDATA)
+```
+and then follow the [instructions for loading AnnData objects](#anndata-objects).
+
+For **image data**:
 ```
 patch_size = 128
 
@@ -89,7 +97,7 @@ The first time this runs for a given dataset, it will create a sub-directory in 
 Optional arguments:
 - `img_transforms` -- a `torchvision.transforms` object (or a [composition](https://pytorch.org/vision/0.9/transforms.html) thereof) to be applied to any image patch prior to accession through the Dataset class.
 
-### AnnData (count only)
+### AnnData objects
 
 GridNext provides functionality to load spatially resolved count data into memory from [AnnData](https://anndata.readthedocs.io/en/latest/). The AnnData object must be structured as such:
 - For spatially-resolved data, `adata.obs` **must** have columns named `x` and `y` for spatial coordinate data.
