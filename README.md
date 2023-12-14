@@ -159,4 +159,20 @@ GridNext requires two model instantiations:
 
 ## Model training
 
+GridNext provides two functions for model training:
+1. `gridnext.training.train_spotwise` for training *f* networks
+2. `gridnext.training.train_gridwise` for training *g* networks
+
+Both functions require the following arguments:
+- `model`: either *f* or *g*
+- `dataloaders`: dictionary mapping keys "train" and "val" to separate `torch.utils.data.DataLoader` objects for each data fold
+- `criterion`: loss function from `torch.nn`
+- `optimizer`: optimizer from `torch.optim`
+
+Both functions additionally accept the following optional arguments:
+- `num_epochs`: number of training epochs (defaults to 10)
+- `outfile`: destination in which to save trained model parameters (updated each iteration)
+
+See examples in [either](notebooks/Tutorial_visium_image.ipynb) [tutorial](notebooks/Tutorial_visium_count.ipynb)
+
 ## Output visualization
