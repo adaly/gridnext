@@ -176,3 +176,9 @@ Both functions additionally accept the following optional arguments:
 See examples in [either](notebooks/Tutorial_visium_image.ipynb) [tutorial](notebooks/Tutorial_visium_count.ipynb)
 
 ## Output visualization
+
+By default, corrector models *g* will output predictions at every location on the spatial grid, regardless of whether tissue is present or not. For the purposes of evaluating performance & exporting predictions, we provide two utility functions for generating predictions at **only** foreground locations (e.g., covered by tissue):
+
+1. `gridnext.utils.all_fgd_predictions` -- generates predictions at all foreground locations in a flattened list. Useful for receiver-operator curve and precision-recall curve (see Section 3.2 of [count](notebooks/Tutorials_visium_count.ipynb) and [image](notebooks/Tutorials_visium_count.ipynb) tutorials)
+2. `gridnext.utils.to_loupe_annots` -- exports foreground predictions in Loupe format. See Section 3.3 of [count](notebooks/Tutorials_visium_count.ipynb) and [image](notebooks/Tutorials_visium_count.ipynb) tutorials.
+```
