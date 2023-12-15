@@ -171,8 +171,8 @@ class PatchGridDataset(Dataset):
 				self.le = LabelEncoder()
 				self.le.fit(all_annots)
 				self.classes = self.le.classes_
-				self.position_files = position_files
-
+				
+		self.position_files = position_files
 		self.img_files = img_files
 		self.annot_files = annot_files
 		self.h_st = h_st
