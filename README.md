@@ -144,6 +144,41 @@ from gridnext.multimodal_datasets import MultiModalDataset, MultiModalGridDatase
 
 ## Model instantiation
 
+GridNext requires two model instantiations:
+1. Spot classifier *f*, which accepts either a transcriptome (1D), image patch (3D), or tuple containing both, and outputs a `n_classes`-length logit tensor
+   - For image data, we provide the `gridnext.densenet.DenseNet` class for instantiating a DenseNet classifier (see [image tutorial Section 1](notebooks/Tutorial_visium_image.ipynb) for example).
+   - For count data, a custom `torch.nn.Sequential` network with appropriate input and output dimensions should be used (see [count tutorial Section 1.2](notebooks/Tutorial_visium_count.ipynb) for example).
+3. Grid classifier *g*, which accepts either a transcriptomic array tensor (3D), image array tensor (5D), or tuple containig both, and outputs an `(n_classes, H_ST, W_ST)`-shaped logit tensor
+   - For Visium data (either count or image), we provide the `gridnext.gridnet_models.GridNetHexOddr` class. In either instance (see [image tutorial Section 2](notebooks/Tutorial_visium_image.ipynb) or [count tutorial Section 2.2](notebooks/Tutorial_visium_count.ipynb)), instantiation requires:
+     - (pre-trained) patch classifier
+     - shape of spot data
+     - shape of spatial grid
+     - number of classes in final prediction layer
+   - By default, *g* takes as input the final output layer of *f* (spot_shape -> f -> n_classes -> g -> n_classes). To instead learn over a penulatimate feature layer of *f*, create a truncated network (e.g., a `DenseNet` model instantiated with the `classify=False` option) and instantiate `GridNetHexOddr` with the `f_dim=SHAPE_OF_F_OUTPUT` option.
+   - For data too large to fit into RAM at once (e.g., tensors of image data), `GridNetHexOddr` provides the `atonce_patch_limit` instantiation argument, which splits arrays into mini-batches during training (see example in [image tutorial Section 2](notebooks/Tutorial_visium_image.ipynb)).
+
 ## Model training
 
+GridNext provides two functions for model training:
+1. `gridnext.training.train_spotwise` for training *f* networks
+2. `gridnext.training.train_gridwise` for training *g* networks
+
+Both functions require the following arguments:
+- `model`: either *f* or *g*
+- `dataloaders`: dictionary mapping keys "train" and "val" to separate `torch.utils.data.DataLoader` objects for each data fold
+- `criterion`: loss function from `torch.nn`
+- `optimizer`: optimizer from `torch.optim`
+
+Both functions additionally accept the following optional arguments:
+- `num_epochs`: number of training epochs (defaults to 10)
+- `outfile`: destination in which to save trained model parameters (updated each iteration)
+
+See examples in [either](notebooks/Tutorial_visium_image.ipynb) [tutorial](notebooks/Tutorial_visium_count.ipynb)
+
 ## Output visualization
+
+By default, corrector models *g* will output predictions at every location on the spatial grid, regardless of whether tissue is present or not. For the purposes of evaluating performance & exporting predictions, we provide two utility functions for generating predictions at **only** foreground locations (e.g., covered by tissue):
+
+1. `gridnext.utils.all_fgd_predictions` -- generates predictions at all foreground locations in a flattened list. Useful for receiver-operator curve and precision-recall curve (see Section 3.2 of [count](notebooks/Tutorials_visium_count.ipynb) and [image](notebooks/Tutorials_visium_count.ipynb) tutorials)
+2. `gridnext.utils.to_loupe_annots` -- exports foreground predictions in Loupe format. See Section 3.3 of [count](notebooks/Tutorials_visium_count.ipynb) and [image](notebooks/Tutorials_visium_count.ipynb) tutorials.
+```
