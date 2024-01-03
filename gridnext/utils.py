@@ -224,8 +224,9 @@ def read_annotfile(afile, position_file=None, afile_delim=',', Visium=True):
         adat = adat[adat.iloc[:,0] != '']
 
         adat = adat.join(pdat, how='left')
+        adat = adat.dropna()
         coord_strs = ['%d_%d' % (x,y) for x,y in zip(adat['array_col'], adat['array_row'])]
-        annot_strs = adat.iloc[:,0]
+        annot_strs = adat.iloc[:,0].values
 
         return coord_strs, annot_strs
     
