@@ -79,20 +79,20 @@ and then follow the [instructions for loading AnnData objects](#anndata-objects)
 
 For **image data**:
 ```
-patch_size = 128
+patch_size_px = 128
 
 # Spot-wise data (for training f)
-spot_dat = create_visium_dataset(spaceranger_dirs, use_image=True, use_count=False, annot_files=annot_files, fullres_image_files=fullres_image_files, patch_size=patch_size, spatial=False)
+spot_dat = create_visium_dataset(spaceranger_dirs, use_image=True, use_count=False, annot_files=annot_files, fullres_image_files=fullres_image_files, patch_size_px=patch_size_px, spatial=False)
 len(spot_dat)                  # n_spots
 x_spot, y_spot = spot_dat[0]   # x_spot = (3, patch_size, patch_size)
 
 # Grid-wise data (for training g)
-grid_dat = create_visium_dataset(spaceranger_dirs, use_image=True, use_count=False, annot_files=annot_files, fullres_image_files=fullres_image_files, patch_size=patch_size, spatial=True)
+grid_dat = create_visium_dataset(spaceranger_dirs, use_image=True, use_count=False, annot_files=annot_files, fullres_image_files=fullres_image_files, patch_size_px=patch_size_px, spatial=True)
 len(grid_dat)                  # n_arrays
 x_grid, y_grid = grid_dat[0]   # x_grid = (n_rows_vis, n_cols_vis, 3, patch_size, patch_size)
 ```
 
-The first time this runs for a given dataset, it will create a sub-directory in each spaceranger output directory with the suffix `*_patches[patch_size]` containing image patches extracted from each spot location in the array (named as [array_name]_[array_col]_[array_row].jpg). On subsequent runs with the same patch size, the function will look for these patches and use them in constructing image tensors.
+The first time this runs for a given dataset, it will create a sub-directory in each spaceranger output directory with the suffix `*_patches[patch_size_px]` containing image patches extracted from each spot location in the array (named as [array_name]_[array_col]_[array_row].jpg). On subsequent runs with the same patch size, the function will look for these patches and use them in constructing image tensors.
 
 Optional arguments:
 - `img_transforms` -- a `torchvision.transforms` object (or a [composition](https://pytorch.org/vision/0.9/transforms.html) thereof) to be applied to any image patch prior to accession through the Dataset class.
