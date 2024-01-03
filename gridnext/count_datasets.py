@@ -262,7 +262,6 @@ class CountGridDataset(Dataset):
                 self.le = LabelEncoder()
                 self.le.fit(all_annots)
                 self.classes = self.le.classes_
-                self.position_files = position_files
         
         self.count_files = count_files
         self.annot_files = annot_files
