@@ -33,6 +33,28 @@ def oddr_to_pseudo_hex(col, row):
 		x_vis += 1
 	return  int(x_vis), int(y_vis)
 
+''' Functions from SpaCell for color cast removal (background -> white)
+'''
+def remove_color_cast(img):
+    img = img.convert('RGB')
+    img_array = np.array(img)
+
+    # Calculate 99th percentile pixels values for each channel
+    rp = np.percentile(img_array[:, :, 0].ravel(), q=99)
+    gp = np.percentile(img_array[:, :, 1].ravel(), q=99)
+    bp = np.percentile(img_array[:, :, 2].ravel(), q=99)
+    
+    # scale image based on percentile values
+    return scale_rgb(img, 255 / rp, 255 / gp, 255 / bp)
+
+def scale_rgb(img, r_scale, g_scale, b_scale):
+    source = img.split()
+    R, G, B = 0, 1, 2
+    red = source[R].point(lambda i: i * r_scale)
+    green = source[G].point(lambda i: i * g_scale)
+    blue = source[B].point(lambda i: i * b_scale)
+    return Image.merge('RGB', [red, green, blue])
+
 
 ######## VISIUM ANNOTATION PROCESSING #######
 
