@@ -33,28 +33,75 @@ def oddr_to_pseudo_hex(col, row):
 		x_vis += 1
 	return  int(x_vis), int(y_vis)
 
+def pseudo_hex_to_cartesian(c):
+	x, y = c 
+	x2 = x/2
+	y2 = y*np.sqrt(3)/2
+	return (x2,y2)
+
 ''' Functions from SpaCell for color cast removal (background -> white)
 '''
 def remove_color_cast(img):
-    img = img.convert('RGB')
-    img_array = np.array(img)
+	img = img.convert('RGB')
+	img_array = np.array(img)
 
-    # Calculate 99th percentile pixels values for each channel
-    rp = np.percentile(img_array[:, :, 0].ravel(), q=99)
-    gp = np.percentile(img_array[:, :, 1].ravel(), q=99)
-    bp = np.percentile(img_array[:, :, 2].ravel(), q=99)
-    
-    # scale image based on percentile values
-    return scale_rgb(img, 255 / rp, 255 / gp, 255 / bp)
+	# Calculate 99th percentile pixels values for each channel
+	rp = np.percentile(img_array[:, :, 0].ravel(), q=99)
+	gp = np.percentile(img_array[:, :, 1].ravel(), q=99)
+	bp = np.percentile(img_array[:, :, 2].ravel(), q=99)
+	
+	# scale image based on percentile values
+	return scale_rgb(img, 255 / rp, 255 / gp, 255 / bp)
 
 def scale_rgb(img, r_scale, g_scale, b_scale):
-    source = img.split()
-    R, G, B = 0, 1, 2
-    red = source[R].point(lambda i: i * r_scale)
-    green = source[G].point(lambda i: i * g_scale)
-    blue = source[B].point(lambda i: i * b_scale)
-    return Image.merge('RGB', [red, green, blue])
+	source = img.split()
+	R, G, B = 0, 1, 2
+	red = source[R].point(lambda i: i * r_scale)
+	green = source[G].point(lambda i: i * g_scale)
+	blue = source[B].point(lambda i: i * b_scale)
+	return Image.merge('RGB', [red, green, blue])
 
+
+''' Functions to gauge image resolution
+'''
+def pairwise_distances(points):
+	'''
+	Parameters:
+	----------
+	points: (n, 2) ndarray
+
+	Returns:
+	-------
+	distances: (n-choose-2,) array
+	'''
+	distances = []
+	for i in range(len(points)):
+		for j in range(i+1, len(points)):
+			d = np.sqrt(np.sum((points[i]-points[j])**2))
+			distances.append(d)
+	return np.array(distances) 
+
+def distance_um_to_px(spaceranger_dir, distance_um):
+	'''
+	Returns:
+	-------
+	imgres: number of pixels spanning specified physical distance (in um)
+	'''
+	positions = visium_get_positions(spaceranger_dir)
+
+	# only need to look at a subset of points to estimate resolution
+	if len(positions) > 10:
+		positions = positions.sample(n=10)
+
+	arr_coords = zip(positions['array_col'], positions['array_row'])
+	px_coords = np.array(list(zip(positions['pxl_col_in_fullres'], positions['pxl_row_in_fullres'])))
+	cart_coords = np.array(list(map(pseudo_hex_to_cartesian, arr_coords)))
+
+	px_dist = pairwise_distances(px_coords)
+	cart_dist = pairwise_distances(cart_coords)
+
+	d100 = np.mean(px_dist / cart_dist)
+	return int(np.rint(distance_um * d100 / 100))
 
 ######## VISIUM ANNOTATION PROCESSING #######
 

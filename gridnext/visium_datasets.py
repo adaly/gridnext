@@ -9,7 +9,7 @@ import anndata as ad
 from pathlib import Path
 
 from gridnext.utils import visium_get_positions, visium_find_position_file
-from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST
+from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST, distance_um_to_px
 from gridnext.image_datasets import PatchDataset, PatchGridDataset
 from gridnext.count_datasets import CountDataset, CountGridDataset
 
@@ -17,7 +17,7 @@ from gridnext.count_datasets import CountDataset, CountGridDataset
 # Creates and returns an appropriate Dataset subclass for the modalities specified
 def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spatial=True,
 	annot_files=None, fullres_image_files=None, count_suffix=".unified.tsv.gz", minimum_detection_rate=0.02,
-	patch_size_px=128, img_transforms=None, select_genes=None):
+	patch_size_px=None, patch_size_um=100.0, img_transforms=None, select_genes=None):
 	'''
 	Parameters:
 	----------
@@ -37,8 +37,10 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 		file suffix for generated unified count files
 	minimum_detection_rate: float, or None
 		discard genes detected in fewer than this fraction of spots across the dataset
-	patch_size_px: int
-		width of patches, in pixels, to be extracted at each spot location
+	patch_size_px: int or None
+		width of patches, in pixels, to be extracted at each spot location. Supercedes patch_size_um
+	patch_size_um: float or None
+		width of patches, in um, to be extracted at each spot location. Resolution is inferred from Spaceranger position file.
 	img_transforms: torchvision.transform
 		transform to be applied to each image patch upon loading (e.g., normalization for pretrained network)
 	select_genes: iterable of str
@@ -53,6 +55,8 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 		
 	if not (use_count or use_image):
 		raise ValueError("Must utilize at least one data modality")
+	if use_image and not (patch_size_px or patch_size_um):
+		raise ValueError("Must specify patch size in pixels (int) or um (float)")
 
 	# Check if unified countfiles have already been generated for these data
 	if use_count:
@@ -65,7 +69,10 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 
 	# Check if image patches have already been extracted for these data
 	if use_image:
-		patch_suffix = '_patches%d' % patch_size_px
+		if patch_size_px is not None:
+			patch_suffix = '_patches%d' % patch_size_px
+		else:
+			patch_suffix = '_patches%d' % patch_size_um
 		patch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
 
 		if not np.all([os.path.exists(pdir) for pdir in patch_dirs]):
@@ -78,7 +85,12 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 				if not os.path.exists(imfile):
 					raise ValueError('Could not find image file: %s' % imfile)
 
-				save_visium_patches(imfile, spaceranger_dir=srd, dest_dir=pdir, patch_size=patch_size_px)
+				if patch_size_px is None:
+					ps = distance_um_to_px(srd, patch_size_um)
+				else:
+					ps = patch_size_px
+
+				save_visium_patches(imfile, spaceranger_dir=srd, dest_dir=pdir, patch_size=ps)
 
 	# Find position files mapping spot barcodes to array/pixel coordinates
 	position_files = [visium_find_position_file(srd) for srd in spaceranger_dirs]
