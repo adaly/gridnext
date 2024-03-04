@@ -1,9 +1,11 @@
 import numpy as np
-
+import seaborn as sns
 from matplotlib import pyplot as plt
 
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import precision_recall_curve, roc_curve, auc
+from sklearn.metrics import precision_recall_curve, roc_curve, auc, confusion_matrix
+
+from gridnext.utils import pseudo_to_true_hex, oddr_to_pseudo_hex
 
 
 ############### ROC and Precision-Recall Curves ###############
@@ -97,45 +99,38 @@ def performance_curves(true, smax, class_names=None, condition_names=None):
 
 ############### Confusion Matrix Plots #################
 
-# Accepts paired list of size (nsamples,) each containing 
-def plot_confusion_matrix(y_true, y_pred, class_names, density):
-    if np.min(y_true)>1:
-        y_true -= 1
-    if np.min(y_pred)>1:
-        y_pred -= 1
+def plot_confusion(y_true, y_pred, class_names=None, figsize=None):
+    '''
+    Parameters:
+    ----------
+    y_true: 1d array
+        flattened array containing true label for each spot
+    y_pred: 1d array
+        flattened array containing predicted label for each spot
+    class_names: iterable of str or None
+        n_class-length iterable mapping foreground labels [1...n_class] to display names
+    figsize: tuple
+        figure size
 
-    labels = range(0,len(class_names))
-    cm_array = confusion_matrix(y_true,y_pred,labels=labels)
+    Returns:
+    -------
+    fig, ax: Figure, Axes objects
+    '''
+    cmat = confusion_matrix(y_true, y_pred)
+    cmat_norm = confusion_matrix(y_true, y_pred, normalize='true')
     
-    fig, ax = plt.subplots(1, constrained_layout=True)
-    if not density:
-        cb = ax.imshow(cm_array, interpolation='nearest', cmap=plt.cm.Blues)
-        ax.set_title('Confusion matrix', fontsize=7)
-        cbar = plt.colorbar(cb,fraction=0.046, pad=0.04)
-        cbar.ax.tick_params(labelsize=7)
-        cbar.set_label('Number of spots', rotation=270, labelpad=30, fontsize=7)
-    else:
-        denom = cm_array.sum(1,keepdims=True)
-        denom = np.maximum(denom, np.ones_like(denom))
-        cb = ax.imshow(cm_array/denom.astype(float),
-            vmin=0,vmax=1,interpolation='nearest', cmap=plt.cm.Blues)
-        ax.set_title('Normalized confusion matrix', fontsize=7)
-        cbar = plt.colorbar(cb,fraction=0.046, pad=0.04)
-        cbar.ax.tick_params(labelsize=7)
-        cbar.set_label('Proportion of spots', rotation=270, labelpad=30, fontsize=7)
-
-    xtick_marks = labels
-    ytick_marks = labels
-    ax.set_xticks(xtick_marks)
-    ax.set_yticks(ytick_marks)
-    ax.set_xticklabels(np.array(class_names),rotation=60,fontsize=7)
-    ax.set_yticklabels(np.array(class_names),fontsize=7)
-    ax.set_xlim([-0.5,len(class_names)-0.5])
-    ax.set_ylim([len(class_names)-0.5,-0.5])
-    ax.set_ylabel('True label',fontsize=7)
-    ax.set_xlabel('Predicted label',fontsize=7)
-
-    return fig
+    if class_names is None:
+        class_names = np.unique(y_true)
+    
+    fig, ax = plt.subplots(1, figsize=figsize)
+    sns.heatmap(cmat_norm, annot=cmat, fmt='d', ax=ax,
+                xticklabels=class_names, yticklabels=class_names,
+                cbar=True, cbar_kws={'label':'fraction of spots'}
+               )
+    ax.set_ylabel('True label')
+    ax.set_xlabel('Predicted label')
+    
+    return fig, ax
 
 ############### Misclassification Density Plots ###############
 
@@ -188,3 +183,57 @@ def plot_class_boundaries(base_image, true):
     
     return fig
     
+############### Tissue Labeling Visualization ###############
+
+def plot_label_tensor(label_tensor, class_names=None, Visium=False, ax=None, legend=True):
+    '''
+    Parameters:
+    ----------
+    label_tensor: Tensor
+        2d Tensor object containing integer labeling of ST array
+    class_names: iterable of str or None
+        n_class-length iterable mapping foreground labels [1...n_class] to display names
+    Visium: bool
+        whether data are Visium formatted (i.e., implcitly hex-packed)
+    ax: Axes or None
+        existing Axes on which to plot labeling, or None to create new Axes
+    legend: bool
+        whether to draw a legend
+
+    Returns:
+    -------
+    ax: Axes object
+    '''
+    if class_names is None:
+        fg_vals = np.sort(np.unique(label_tensor[label_tensor > 0]))
+    else:
+        fg_vals = np.arange(1, len(class_names)+1)
+                
+    if ax is None:
+        fig, ax = plt.subplots(1, figsize=(10,8))
+    ax.set_aspect('equal')
+    ax.invert_yaxis()
+        
+    for fgv in fg_vals:
+        # transpose so first dimension is x (columns)
+        pts = torch.nonzero(label_tensor.T==fgv)
+            
+        if class_names is None:
+            lbl = fgv
+        else:
+            lbl = class_names[fgv-1]
+        
+        # convert to Cartesian coordinates if needed
+        if Visium:
+            pts = torch.tensor([pseudo_to_true_hex(*oddr_to_pseudo_hex(*c)) for c in pts])
+            
+        if len(pts) > 0:
+            ax.scatter(pts[:,0], pts[:,1], label=lbl, s=10)
+        else:
+            ax.scatter([],[], label=lbl, s=10)
+    
+    ax.axis('off')
+    if legend:
+        ax.legend(bbox_to_anchor=(1,0), loc='lower left')
+    
+    return ax

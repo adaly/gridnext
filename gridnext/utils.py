@@ -15,8 +15,9 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc, roc_auc_score
 from gridnext.plotting import plot_confusion_matrix
 
 
-# For each batch in dataloader, calculates model prediction.
-# Returns a flattened, foreground-masked (true label > 0) list of spot predictions.
+############### Prediction functions ###############
+
+# Outputs flattened list of model predictions (both integer labels and softmax vectors) for all foreground spots
 def all_fgd_predictions(dataloader, model, f_only=False):
 	true_vals, pred_vals, pred_smax = [], [], []
 
@@ -62,12 +63,27 @@ def all_fgd_predictions(dataloader, model, f_only=False):
 # Convert from pseudo-hex indexing scheme used by Visium to "odd-right" hexagonal indexing
 # (odd-numbered rows are implicitly shifted one half-unit right; vertical axis implicitly scaled by sqrt(3)/2)
 def pseudo_hex_to_oddr(col, row):
-    if col % 2 == 0:
+    if row % 2 == 0:
         x = col/2
     else:
         x = (col-1)/2
     y = row
     return int(x), int(y)
+
+# Invert above transformation
+def oddr_to_pseudo_hex(col, row):
+    if row % 2 == 0:
+        x = 2*col
+    else:
+        x = 2*col + 1
+    y = row
+    return int(x), int(y)
+
+# Convert from Visium's pseudo-hex indexing to true Cartesian coordinates (neighbors unit distance apart)
+def pseudo_to_true_hex(col, row):
+    x = col / 2
+    y = row * np.sqrt(3) / 2
+    return x, y
 
 # Read paired count and annotation files and populate input/label ndarrays for GridNet.
 def read_annotated_starray(count_file, annot_file=None, select_genes=None, 
@@ -196,10 +212,7 @@ def anndata_to_grids(adata, labels, h_st=78, w_st=64, use_pcs=False, vis_coords=
 
     for i, (x,y) in enumerate(zip(adata.obs.x, adata.obs.y)):
         if vis_coords:
-            if x % 2 == 1:
-                x = (x-1)//2
-            else:
-                x = x//2
+            x, y = pseudo_hex_to_oddr(x, y)
         labels_grid[y,x] = labels[i] + 1
 
         '''
