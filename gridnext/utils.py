@@ -12,8 +12,6 @@ from scipy import sparse
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import confusion_matrix, roc_curve, auc, roc_auc_score
 
-from gridnext.plotting import plot_confusion_matrix
-
 
 ############### Prediction functions ###############
 
