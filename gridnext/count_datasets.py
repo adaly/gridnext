@@ -420,7 +420,7 @@ class AnnGridDataset(AnnDataset):
 # Load full datset into memory as TensorDataset -- slow instantiation
 # -> SLOW instantiation (~2s/array), FAST accession (<1s)
 def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64, 
-                                    use_pcs=False, vis_coords=True):
+                                    use_pcs=False, vis_coords=True, arrays_ordered=None):
     '''
     Parameters:
     ----------
@@ -438,6 +438,8 @@ def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64,
         when not None, use the first n_pcs from adata.layers['X_pca']
     vis_coords: bool
         whether to interpret the coordinates in adata.obs as Visium array coordinates (pseudo-hex)
+    arrays_ordered: iterable of str or None
+        list of array names in the order in which they should be indexed (defaults to adata.obs[obs_arr].unique())
 
     Returns:
     -------
@@ -450,9 +452,15 @@ def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64,
     labels = le.fit_transform(adata.obs[obs_label])
     
     count_grids, label_grids = [],[]
+
+    if arrays_ordered is None:
+        arrays_ordered = adata.obs[obs_arr].unique()
     
-    for arr in tqdm(adata.obs[obs_arr].unique()):
+    for arr in tqdm(arrays_ordered):
         adata_arr = adata[adata.obs[obs_arr]==arr]
+        if len(adata_arr) == 0:
+            print("Warning: no spots found for array %s" % arr)
+            continue
         lbls_arr = le.transform(adata_arr.obs[obs_label].values)
         
         cg, lg = anndata_to_grids(adata_arr, lbls_arr, h_st, w_st, use_pcs, vis_coords)
