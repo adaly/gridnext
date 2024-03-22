@@ -122,33 +122,6 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	else:
 		return dat_count
 
-	'''
-	# Count-only data
-	if use_count and not use_image:
-		if spatial:
-			grid_data = CountGridDataset(count_files, annot_files=annot_files, position_files=position_files,
-				Visium=True, select_genes=select_genes, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
-			return grid_data
-		else:
-			patch_data = CountDataset(count_files, annot_files=annot_files, position_files=position_files,
-				Visium=True, select_genes=select_genes)
-			return patch_data
-
-	# Image-only data
-	elif use_image and not use_count:
-		if spatial:
-			grid_data = PatchGridDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
-				Visium=True, img_transforms=img_transforms, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
-			return grid_data
-		else:
-			patch_data = PatchDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
-				Visium=True, img_transforms=img_transforms)
-			return patch_data
-
-	# Multimodal data
-	else:
-		raise NotImplementedError
-	'''
 
 # Generate unified countfiles containing same genes in same order from a list of spaceranger directories
 def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=None):
