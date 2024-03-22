@@ -2,6 +2,7 @@ import os
 import csv
 import gzip
 import glob
+import logging
 import scipy.io
 import numpy as np
 import pandas as pd
@@ -12,6 +13,8 @@ from gridnext.utils import visium_get_positions, visium_find_position_file
 from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST, distance_um_to_px
 from gridnext.image_datasets import PatchDataset, PatchGridDataset
 from gridnext.count_datasets import CountDataset, CountGridDataset
+
+from torch.utils.data import StackDataset
 
 
 # Creates and returns an appropriate Dataset subclass for the modalities specified
@@ -70,9 +73,9 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	# Check if image patches have already been extracted for these data
 	if use_image:
 		if patch_size_px is not None:
-			patch_suffix = '_patches%d' % patch_size_px
+			patch_suffix = '_patches%dpx' % patch_size_px
 		else:
-			patch_suffix = '_patches%d' % patch_size_um
+			patch_suffix = '_patches%dum' % patch_size_um
 		patch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
 
 		if not np.all([os.path.exists(pdir) for pdir in patch_dirs]):
@@ -95,6 +98,31 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	# Find position files mapping spot barcodes to array/pixel coordinates
 	position_files = [visium_find_position_file(srd) for srd in spaceranger_dirs]
 
+	if spatial:
+		if use_image:
+			dat_image = PatchGridDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
+				Visium=True, img_transforms=img_transforms, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
+		if use_count:
+			dat_count = CountGridDataset(count_files, annot_files=annot_files, position_files=position_files,
+				Visium=True, select_genes=select_genes, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
+	else:
+		if use_image:
+			dat_image = PatchDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
+				Visium=True, img_transforms=img_transforms)
+		if use_count:
+			dat_count = CountDataset(count_files, annot_files=annot_files, position_files=position_files,
+				Visium=True, select_genes=select_genes)
+
+	if use_image and use_count:
+		if not spatial:
+			raise NotImplementedError("Need to ensure indexing matches between spots in datasets")
+		return StackDataset(dat_image, dat_count)
+	elif use_image:
+		return dat_image
+	else:
+		return dat_count
+
+	'''
 	# Count-only data
 	if use_count and not use_image:
 		if spatial:
@@ -120,6 +148,7 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	# Multimodal data
 	else:
 		raise NotImplementedError
+	'''
 
 # Generate unified countfiles containing same genes in same order from a list of spaceranger directories
 def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=None):
