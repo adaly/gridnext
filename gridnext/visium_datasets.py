@@ -13,8 +13,7 @@ from gridnext.utils import visium_get_positions, visium_find_position_file
 from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST, distance_um_to_px
 from gridnext.image_datasets import PatchDataset, PatchGridDataset
 from gridnext.count_datasets import CountDataset, CountGridDataset
-
-from torch.utils.data import StackDataset
+from gridnext.multimodal_datasets import MMStackDataset
 
 
 # Creates and returns an appropriate Dataset subclass for the modalities specified
@@ -116,7 +115,7 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	if use_image and use_count:
 		if not spatial:
 			raise NotImplementedError("Need to ensure indexing matches between spots in datasets")
-		return StackDataset(dat_image, dat_count)
+		return MMStackDataset(dat_image, dat_count)
 	elif use_image:
 		return dat_image
 	else:
