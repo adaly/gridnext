@@ -216,6 +216,56 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 
 	return adata_all
 
+# Create an AnnData object containing (annotated) count and image data from multiple Visium arrays.
+# Stores only path to extracted image file per spot.
+def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_image_files=None,
+	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0):
+	adata_count = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=None)
+
+	if imgpatch_dirs is None and fullres_image_files is None:
+		raise ValueError('Must provide either patched image directories or fullres images')
+
+	elif imgpatch_dirs is None:
+		if patch_size_px is not None:
+			patch_suffix = '_patches%dpx' % patch_size_px
+		else:
+			patch_suffix = '_patches%dum' % patch_size_um
+		imgpatch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+
+		# Extract image patches for all arrays from which they have not yet been
+		for imfile, pdir, srd in zip(fullres_image_files, imgpatch_dirs, spaceranger_dirs):
+			if not os.path.exists(pdir):
+				if not os.path.exists(imfile):
+					raise ValueError('Could not find image file: %s' % imfile)
+
+				if patch_size_px is None:
+					ps = distance_um_to_px(srd, patch_size_um)
+				else:
+					ps = patch_size_px
+				save_visium_patches(imfile, spaceranger_dir=srd, dest_dir=pdir, patch_size=ps)
+
+	# Subset Visium count AnnData to only contain patches for which there is image data available
+	adata_list = []
+	for srd, pdir in zip(spaceranger_dirs, imgpatch_dirs):
+		arr = Path(srd).stem
+		adata_arr = adata_count[adata_count.obs.array == arr]
+
+		imfiles = [os.path.join(pdir, '%s_%d_%d.jpg' % (arr, x, y)) for x,y in zip(adata_arr.obs.x, adata_arr.obs.y)]
+		adata_arr.obs['imgpath'] = imfiles
+
+		# Keep only spots for which image data exist
+		keep_inds = [os.path.exists(im) for im in imfiles]
+		adata_arr = adata_arr[keep_inds]
+
+		adata_list.append(adata_arr)
+
+	adata_img = ad.concat(adata_list)
+
+	if destfile is not None:
+		adata_img.write(destfile, compression='gzip')
+
+	return adata_img
+
 
 if __name__ == '__main__':
 	data_dir = '../data/BA44_testdata'
