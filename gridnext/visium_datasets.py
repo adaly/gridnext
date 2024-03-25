@@ -233,6 +233,7 @@ def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_imag
 		imgpatch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
 
 		# Extract image patches for all arrays from which they have not yet been
+		# TODO: abstract from this and create_visium_dataset?
 		for imfile, pdir, srd in zip(fullres_image_files, imgpatch_dirs, spaceranger_dirs):
 			if not os.path.exists(pdir):
 				if not os.path.exists(imfile):

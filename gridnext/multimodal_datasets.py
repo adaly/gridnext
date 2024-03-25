@@ -12,6 +12,7 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 from gridnext.count_datasets import CountDataset, CountGridDataset
+from gridnext.count_datasets import AnnDataset, AnnGridDataset
 from gridnext.imgprocess import pseudo_hex_to_oddr
 
 
@@ -26,6 +27,64 @@ class MMStackDataset(StackDataset):
 		y[diff] = 0
 
 		return (x1, x2), y
+
+
+# Accepts AnnData object constructed with visium_datasets.create_visium_anndata_img
+class MMAnnDataset(AnnDataset):
+	def __init__(self, adata, obs_label, obs_img='imgpath', use_pcs=None, img_transforms=None):
+		super(MMAnnDataset, self).__init__(adata, obs_label, use_pcs=use_pcs)
+
+		self.imgfiles = adata.obs[obs_img]
+
+		if img_transforms is None:
+			self.preprocess = Compose([ToTensor()])
+		else:
+			self.preprocess = img_transforms
+
+	def __getitem__(self, idx):
+		x_count, y = super(MMAnnDataset, self).__getitem__(idx)
+		x_image = Image.open(self.imgfiles[idx])
+		x_image = self.preprocess(x_image).float()
+
+		return (x_image, x_count), y
+
+class MMAnnGridDataset(AnnGridDataset):
+	def __init__(self, adata, obs_label, obs_arr, obs_img='imgpath', use_pcs=None, img_transforms=None, 
+		obs_x='x', obs_y='y', h_st=78, w_st=64, vis_coords=True):
+		super(MMAnnGridDataset, self).__init__(adata, obs_label, obs_arr, obs_x=obs_x, obs_y=obs_y,
+			h_st=h_st, w_st=w_st, use_pcs=use_pcs, vis_coords=vis_coords)
+
+		self.obs_img = obs_img
+
+		if img_transforms is None:
+			self.preprocess = Compose([ToTensor()])
+		else:
+			self.preprocess = img_transforms
+
+	def __getitem__(self, idx):
+		x_count, y = super(MMAnnGridDataset, self).__getitem__(idx)
+
+		adata_arr = self.adata[self.adata.obs[self.obs_arr]==self.arrays[idx]]
+		patch_grid = None
+		for imfile, a_x, a_y in zip(adata_arr.obs[self.obs_img], adata_arr.obs[self.obs_x], 
+			adata_arr.obs[self.obs_y]):
+			
+			patch = Image.open(imfile)
+			patch = self.preprocess(patch)
+
+			if patch_grid is None:
+				c,h,w = patch.shape
+				patch_grid = torch.zeros(self.h_st, self.w_st, c, h, w)
+			
+			if self.vis_coords:
+				x, y = pseudo_hex_to_oddr(a_x, a_y)
+			else:
+				x, y = a_x, a_y
+			patch_grid[y, x] = patch
+
+		x_image = patch_grid.float()
+
+		return (x_image, x_count), y
 
 
 ############ CURRENTLY DEFUNCT ############
