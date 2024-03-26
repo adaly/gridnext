@@ -178,6 +178,16 @@ def read_feature_matrix(srd):
 
 # Create an AnnData object containing the annotated count data from multiple Visium arrays
 def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
+	'''
+	Parameters:
+	----------
+	spaceranger_dirs: iterable of path
+		path to spaceranger output directories for each Visium array in dataset
+	annot_files: iterable of path, or None
+		path to Loupe annotation file for each array in dataset; None for un-annotated data
+	destfile: path or None
+		path in which to save generated AnnData object
+	'''
 	adata_list = []
 
 	for i, srd in enumerate(spaceranger_dirs):
@@ -220,6 +230,24 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 # Stores only path to extracted image file per spot.
 def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_image_files=None,
 	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0):
+	'''
+	Parameters:
+	----------
+	spaceranger_dirs: iterable of path
+		path to spaceranger output directories for each Visium array in dataset
+	imgpatch_dirs: iterable of path, or None
+		path to directory containing extracted image patches for each spot (formatted [array]_[x]_[y].jpg)
+	fullres_image_files: iterable of path, or None
+		path to full-resolution image file for each Visium array (required if imgpatch_dirs is None)
+	annot_files: iterable of path, or None
+		path to Loupe annotation file for each array in dataset; None for un-annotated data
+	destfile: path or None
+		path in which to save generated AnnData object
+	patch_size_px: int or None
+		width of patches, in pixels, to be extracted at each spot location. Supercedes patch_size_um
+	patch_size_um: float or None
+		width of patches, in um, to be extracted at each spot location. Resolution is inferred from Spaceranger position file.
+	'''
 	adata_count = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=None)
 
 	if imgpatch_dirs is None and fullres_image_files is None:

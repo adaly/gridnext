@@ -31,6 +31,20 @@ class MMStackDataset(StackDataset):
 
 # Accepts AnnData object constructed with visium_datasets.create_visium_anndata_img
 class MMAnnDataset(AnnDataset):
+	'''
+	Parameters:
+	----------
+	adata: AnnData
+		AnnData object containing count data (in X/obsm) and image data (in obs) from ST arrays
+	obs_label: str
+		column in adata.obs containing the spot labels to predict
+	obs_img: str
+		column in adata.obs containing paths to individual spot images
+	use_pcs: int or None
+		number of PCs (from adata.obsm['X_pca']) to use as input, or None to use adata.X
+	img_transforms: torchvision.Transform
+		preprocessing transforms to apply to image patches after loading
+	'''
 	def __init__(self, adata, obs_label, obs_img='imgpath', use_pcs=None, img_transforms=None):
 		super(MMAnnDataset, self).__init__(adata, obs_label, use_pcs=use_pcs)
 
@@ -49,8 +63,31 @@ class MMAnnDataset(AnnDataset):
 		return (x_image, x_count), y
 
 class MMAnnGridDataset(AnnGridDataset):
+	'''
+	Parameters:
+	----------
+	adata: AnnData
+		AnnData object containing count data (in X/obsm) and image data (in obs) from Visium arrays
+	obs_label: str
+		column in adata.obs containing the spot labels to predict
+	obs_arr: str
+		column in adata.obs containing the array labels for each spot
+	obs_img: str
+		column in adata.obs containing paths to individual spot images
+	use_pcs: int or None
+		number of PCs (from adata.obsm['X_pca']) to use as input, or None to use adata.X
+	img_transforms: torchvision.Transform
+		preprocessing transforms to apply to image patches after loading
+	obs_x, obs_y: str
+		column in adata.obs containing x and y ST array coordinates
+	h_st, w_st: int
+		number of rows, columns in ST array
+	vis_coords: bool
+		whether the coordinates in adata.obs.obs_x and adata.obs.obs_y are in Visium pseudo-hex format
+	'''
 	def __init__(self, adata, obs_label, obs_arr, obs_img='imgpath', use_pcs=None, img_transforms=None, 
 		obs_x='x', obs_y='y', h_st=78, w_st=64, vis_coords=True):
+
 		super(MMAnnGridDataset, self).__init__(adata, obs_label, obs_arr, obs_x=obs_x, obs_y=obs_y,
 			h_st=h_st, w_st=w_st, use_pcs=use_pcs, vis_coords=vis_coords)
 
