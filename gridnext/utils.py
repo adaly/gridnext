@@ -166,8 +166,7 @@ def read_annotated_starray(count_file, annot_file=None, select_genes=None,
 
 # Write a Loupe-formatted file containing annotations for a given tissue.
 def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None, zero_bg=True):
-    positions = pd.read_csv(position_file, index_col=0, header=None,
-      names=["in_tissue", "array_row", "array_col", "pixel_row", "pixel_col"])
+    positions = visium_get_positions_fromfile(position_file)
     barcodes = []
     annotations = []
 
