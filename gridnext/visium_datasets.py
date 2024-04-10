@@ -238,7 +238,7 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 # Create an AnnData object containing (annotated) count and image data from multiple Visium arrays.
 # Stores only path to extracted image file per spot.
 def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_image_files=None,
-	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0):
+	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0, save_patches_to=None):
 	'''
 	Parameters:
 	----------
@@ -256,6 +256,9 @@ def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_imag
 		width of patches, in pixels, to be extracted at each spot location. Supercedes patch_size_um
 	patch_size_um: float or None
 		width of patches, in um, to be extracted at each spot location. Resolution is inferred from Spaceranger position file.
+	save_patches_to: path or None
+		path to top-level directory in which to save image patches (one sub-directory created per array);
+		or None to save in-place in Spaceranger directory for each array
 	'''
 	adata_count = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=None)
 
@@ -267,7 +270,13 @@ def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_imag
 			patch_suffix = '_patches%dpx' % patch_size_px
 		else:
 			patch_suffix = '_patches%dum' % patch_size_um
-		imgpatch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+
+		if save_patches_to is None:
+			imgpatch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+		else:
+			if not os.path.exists(save_patches_to):
+				os.mkdir(save_patches_to)
+			imgpatch_dirs = [os.path.join(save_patches_to, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
 
 		# Extract image patches for all arrays from which they have not yet been
 		# TODO: abstract from this and create_visium_dataset?
