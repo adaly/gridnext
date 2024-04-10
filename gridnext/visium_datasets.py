@@ -19,7 +19,7 @@ from gridnext.multimodal_datasets import MMStackDataset
 # Creates and returns an appropriate Dataset subclass for the modalities specified
 def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spatial=True,
 	annot_files=None, fullres_image_files=None, count_suffix=".unified.tsv.gz", minimum_detection_rate=0.02,
-	patch_size_px=None, patch_size_um=100.0, img_transforms=None, select_genes=None):
+	patch_size_px=None, patch_size_um=100.0, img_transforms=None, select_genes=None, save_patches_to=None):
 	'''
 	Parameters:
 	----------
@@ -47,6 +47,9 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 		transform to be applied to each image patch upon loading (e.g., normalization for pretrained network)
 	select_genes: iterable of str
 		list of genes to subset from the full transcriptome
+	save_patches_to: path or None
+		path to top-level directory in which to save image patches (one sub-directory created per array);
+		or None to save in-place in Spaceranger directory for each array
 
 	Returns:
 	-------
@@ -75,7 +78,13 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 			patch_suffix = '_patches%dpx' % patch_size_px
 		else:
 			patch_suffix = '_patches%dum' % patch_size_um
-		patch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+
+		if save_patches_to is None:
+			patch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+		else:
+			if not os.path.exists(save_patches_to):
+				os.mkdir(save_patches_to)
+			patch_dirs = [os.path.join(save_patches_to, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
 
 		if not np.all([os.path.exists(pdir) for pdir in patch_dirs]):
 			print("No extracted image patches detected (%s) -- generating..." % ("*"+patch_suffix))
