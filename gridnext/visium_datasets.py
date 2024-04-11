@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 from pathlib import Path
+from scipy import sparse
 
 from gridnext.utils import visium_get_positions, visium_find_position_file
 from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST, distance_um_to_px
@@ -223,7 +224,7 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 			obs['annotation'] = df_annot.loc[barcodes].iloc[:,0]
 		obs.index = ['%s_%d_%d' % (arr,x,y) for x,y in zip(obs['x'].values, obs['y'].values)]
 
-		adata = ad.AnnData(X=df_counts.loc[barcodes, :].values, 
+		adata = ad.AnnData(X=sparse.csr_matrix(df_counts.loc[barcodes, :].values), 
 			var=pd.DataFrame(index=df_counts.columns), 
 			obs=obs)
 		adata_list.append(adata)
