@@ -296,7 +296,7 @@ def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_imag
 	adata_list = []
 	for srd, pdir in zip(spaceranger_dirs, imgpatch_dirs):
 		arr = Path(srd).stem
-		adata_arr = adata_count[adata_count.obs.array == arr]
+		adata_arr = adata_count[adata_count.obs.array == arr].copy()
 
 		imfiles = [os.path.join(pdir, '%s_%d_%d.jpg' % (arr, x, y)) for x,y in zip(adata_arr.obs.x, adata_arr.obs.y)]
 		adata_arr.obs['imgpath'] = imfiles
