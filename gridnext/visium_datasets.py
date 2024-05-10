@@ -173,8 +173,10 @@ def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=
 	for filename in result.columns.levels[0]:
 		result[filename].to_csv(filename+suffix,sep='\t',index=True)
 
+
+# Read in the result of a Spaceranger run as a (genes, spots) count DataFrame
 def read_feature_matrix(srd):
-	matrix_dir = os.path.join(srd, "outs/filtered_feature_bc_matrix/")
+	matrix_dir = os.path.join(srd, "outs", "filtered_feature_bc_matrix")
 	mat = scipy.io.mmread(os.path.join(matrix_dir, "matrix.mtx.gz"))
 
 	features_path = os.path.join(matrix_dir, "features.tsv.gz")
@@ -184,7 +186,16 @@ def read_feature_matrix(srd):
 	barcodes = [row[0] for row in csv.reader(gzip.open(barcodes_path, "rt"), delimiter="\t")]
 
 	df = pd.DataFrame.sparse.from_spmatrix(mat, index=feature_ids, columns=barcodes)
-	return df 
+	return df
+
+
+# Create a DataFrame mapping ENSEMBL to gene_symbols for all genes detected by Spaceranger
+def read_feature_names(srd):
+	features_path = os.path.join(srd, "outs", "filtered_feature_bc_matrix", "features.tsv.gz")
+	feature_names = pd.read_csv(features_path, header=None, index_col=0, sep='\t', 
+		names=['ENSEMBL','gene_symbol'], usecols=[0,1])
+	return feature_names
+
 
 # Create an AnnData object containing the annotated count data from multiple Visium arrays
 def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
@@ -203,6 +214,7 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 	for i, srd in enumerate(spaceranger_dirs):
 		df_counts = read_feature_matrix(srd).T
 		df_pos = visium_get_positions(srd)
+		df_feats = read_feature_names(srd)
 
 		barcodes = df_pos[df_pos['in_tissue']==1].index
 
@@ -224,17 +236,21 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 			obs['annotation'] = df_annot.loc[barcodes].iloc[:,0]
 		obs.index = ['%s_%d_%d' % (arr,x,y) for x,y in zip(obs['x'].values, obs['y'].values)]
 
+		var = pd.DataFrame({'gene_symbol':df_feats.loc[df_counts.columns, 'gene_symbol']}, 
+			index=df_counts.columns)
+
 		adata = ad.AnnData(X=sparse.csr_matrix(df_counts.loc[barcodes, :].values), 
-			var=pd.DataFrame(index=df_counts.columns), 
-			obs=obs)
+			var=var, obs=obs)
 		adata_list.append(adata)
 
-	adata_all = ad.concat(adata_list, axis=0, join='outer')
+	# 'merge' option required to bring along other columns ('gene_symbol') from component .vars
+	adata_all = ad.concat(adata_list, axis=0, join='outer', merge='first')
 
 	if destfile is not None:
 		adata_all.write(destfile, compression='gzip')
 
 	return adata_all
+
 
 # Create an AnnData object containing (annotated) count and image data from multiple Visium arrays.
 # Stores only path to extracted image file per spot.
@@ -307,7 +323,8 @@ def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_imag
 
 		adata_list.append(adata_arr)
 
-	adata_img = ad.concat(adata_list)
+	# 'merge' option required to bring along other columns ('gene_symbol') from component .vars
+	adata_img = ad.concat(adata_list, axis=0, join='outer', merge='first')
 
 	if destfile is not None:
 		adata_img.write(destfile, compression='gzip')
