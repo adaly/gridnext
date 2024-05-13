@@ -34,5 +34,6 @@ setup(name='GridNext',
       install_requires=install_requires,
       cmdclass={
           'install': install
-      }
+      },
+      include_package_data=True
 )
