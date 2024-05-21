@@ -329,7 +329,7 @@ def pseudo_visium_spots(fullres_roi, dest_dir, image_width_mm=8, spot_width_um=5
 	dy = spot_space_px * np.sqrt(3) / 2
 
 	# Fill values in positions, scale factor templates
-	for bc in df_pos.index_col:
+	for bc in df_pos.index:
 		df_pos.loc[bc, 'pxl_col_in_fullres'] = int(np.rint(ul[0] + df_pos.loc[bc, 'array_col']/2 * dx))
 		df_pos.loc[bc, 'pxl_row_in_fullres'] = int(np.rint(ul[1] + df_pos.loc[bc, 'array_row'] * dy))
 
