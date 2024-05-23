@@ -306,7 +306,7 @@ class CountGridDataset(Dataset):
 ############### AnnData-based Datasets ###############
 
 class AnnDataset(Dataset):
-    def __init__(self, adata, obs_label, use_pcs=False):
+    def __init__(self, adata, obs_label, use_pcs=None):
         '''
         Parameters:
         ----------
@@ -335,6 +335,9 @@ class AnnDataset(Dataset):
             x = self.adata.obsm['X_pca'][idx, :self.use_pcs]
         else:
             x = self.adata.X[idx, :]
+
+        if issparse(x):
+            x = np.array(x.todense()).squeeze()
         
         return torch.from_numpy(x), torch.tensor(y).long()
 
@@ -376,7 +379,7 @@ def anndata_to_tensordataset(adata, obs_label, use_pcs=False):
 # Subset AnnData object by obs_arr (e.g., Visium array ID)
 # -> FAST instantiation (<1s), SLOW accession (~20s/array)
 class AnnGridDataset(AnnDataset):
-    def __init__(self, adata, obs_label, obs_arr, obs_x='x', obs_y='y', h_st=78, w_st=64, use_pcs=False, 
+    def __init__(self, adata, obs_label, obs_arr, obs_x='x', obs_y='y', h_st=78, w_st=64, use_pcs=None, 
                  vis_coords=True):
         '''
         Parameters:

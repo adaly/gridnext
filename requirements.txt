@@ -11,3 +11,5 @@ tqdm
 hexagdly
 torch_geometric
 scanpy
+einops
+local_attention
