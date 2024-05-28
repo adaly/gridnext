@@ -226,10 +226,10 @@ class GridNetHexMM(GridNetHexOddr):
     def patch_predictions(self, x):
         x_image, x_count = x
 
-        self._set_mode('image')
-        ppg_image = super(GridNetHexMM, self).patch_predictions(x_image)
         self._set_mode('count')
         ppg_count = super(GridNetHexMM, self).patch_predictions(x_count)
+        self._set_mode('image')
+        ppg_image = super(GridNetHexMM, self).patch_predictions(x_image)
         self._set_mode('concat')
 
         return torch.cat((ppg_count, ppg_image), dim=1)
