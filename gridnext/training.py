@@ -43,7 +43,11 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs=10,
 
             # Iterate over data.
             for inputs, labels in iterator:
-                inputs = inputs.to(device)
+                batch_size = labels.size(0)
+                if isinstance(inputs, list):
+                    inputs = [x.to(device) for x in inputs]  # for multi-modal input to GridNetHexMM
+                else:
+                    inputs = inputs.to(device)
                 labels = labels.to(device)
 
                 # zero the parameter gradients
@@ -63,7 +67,7 @@ def train_spotwise(model, dataloaders, criterion, optimizer, num_epochs=10,
                         optimizer.step()
 
                 # statistics
-                running_loss += loss.item() * inputs.size(0)
+                running_loss += loss.item() * batch_size
                 running_corrects += torch.sum(preds == labels.data)
 
             epoch_loss = running_loss / len(dataloaders[phase].dataset)
@@ -127,7 +131,11 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=10, outf
 
             # Iterate over data.
             for batch_ind, (inputs, labels) in enumerate(dataloaders[phase]):
-                inputs = inputs.to(device)
+                batch_size = labels.size(0)
+                if isinstance(inputs, list):
+                    inputs = [x.to(device) for x in inputs]  # for multi-modal input to GridNetHexMM
+                else:
+                    inputs = inputs.to(device)
                 labels = labels.to(device)
 
                 # forward
@@ -163,7 +171,7 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=10, outf
                                 f_opt.zero_grad()
 
                 # statistics
-                running_loss += loss.item() * inputs.size(0)
+                running_loss += loss.item() * batch_size
                 running_corrects += torch.sum(preds == labels.data)
                 running_foreground += len(labels)
 
