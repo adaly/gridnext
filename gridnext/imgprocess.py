@@ -208,7 +208,6 @@ def grid_from_wsi_visium(fullres_imgfile, spaceranger_dir, patch_size=256, windo
 		row = df.iloc[i]
 		x_ind, y_ind = pseudo_hex_to_oddr(row['array_col'], row['array_row'])
 		x_px, y_px = df.iloc[i]['pxl_col_in_fullres'], df.iloc[i]['pxl_row_in_fullres']
-		x_px, y_px = int(np.rint(x_px)), int(np.rint(y_px))
 
 		# Account for fractional pixel coordinates (rare)
 		x_px = int(np.rint(x_px))
