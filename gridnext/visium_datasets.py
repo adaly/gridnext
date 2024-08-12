@@ -2,22 +2,25 @@ import os
 import csv
 import gzip
 import glob
+import logging
 import scipy.io
 import numpy as np
 import pandas as pd
 import anndata as ad
 from pathlib import Path
+from scipy import sparse
 
 from gridnext.utils import visium_get_positions, visium_find_position_file
 from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST, distance_um_to_px
 from gridnext.image_datasets import PatchDataset, PatchGridDataset
 from gridnext.count_datasets import CountDataset, CountGridDataset
+from gridnext.multimodal_datasets import MMStackDataset
 
 
 # Creates and returns an appropriate Dataset subclass for the modalities specified
 def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spatial=True,
 	annot_files=None, fullres_image_files=None, count_suffix=".unified.tsv.gz", minimum_detection_rate=0.02,
-	patch_size_px=None, patch_size_um=100.0, img_transforms=None, select_genes=None):
+	patch_size_px=None, patch_size_um=100.0, img_transforms=None, select_genes=None, save_patches_to=None):
 	'''
 	Parameters:
 	----------
@@ -45,6 +48,9 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 		transform to be applied to each image patch upon loading (e.g., normalization for pretrained network)
 	select_genes: iterable of str
 		list of genes to subset from the full transcriptome
+	save_patches_to: path or None
+		path to top-level directory in which to save image patches (one sub-directory created per array);
+		or None to save in-place in Spaceranger directory for each array
 
 	Returns:
 	-------
@@ -70,10 +76,16 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	# Check if image patches have already been extracted for these data
 	if use_image:
 		if patch_size_px is not None:
-			patch_suffix = '_patches%d' % patch_size_px
+			patch_suffix = '_patches%dpx' % patch_size_px
 		else:
-			patch_suffix = '_patches%d' % patch_size_um
-		patch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+			patch_suffix = '_patches%dum' % patch_size_um
+
+		if save_patches_to is None:
+			patch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+		else:
+			if not os.path.exists(save_patches_to):
+				os.mkdir(save_patches_to)
+			patch_dirs = [os.path.join(save_patches_to, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
 
 		if not np.all([os.path.exists(pdir) for pdir in patch_dirs]):
 			print("No extracted image patches detected (%s) -- generating..." % ("*"+patch_suffix))
@@ -95,31 +107,30 @@ def create_visium_dataset(spaceranger_dirs, use_count=True, use_image=True, spat
 	# Find position files mapping spot barcodes to array/pixel coordinates
 	position_files = [visium_find_position_file(srd) for srd in spaceranger_dirs]
 
-	# Count-only data
-	if use_count and not use_image:
-		if spatial:
-			grid_data = CountGridDataset(count_files, annot_files=annot_files, position_files=position_files,
-				Visium=True, select_genes=select_genes, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
-			return grid_data
-		else:
-			patch_data = CountDataset(count_files, annot_files=annot_files, position_files=position_files,
-				Visium=True, select_genes=select_genes)
-			return patch_data
-
-	# Image-only data
-	elif use_image and not use_count:
-		if spatial:
-			grid_data = PatchGridDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
+	if spatial:
+		if use_image:
+			dat_image = PatchGridDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
 				Visium=True, img_transforms=img_transforms, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
-			return grid_data
-		else:
-			patch_data = PatchDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
-				Visium=True, img_transforms=img_transforms)
-			return patch_data
-
-	# Multimodal data
+		if use_count:
+			dat_count = CountGridDataset(count_files, annot_files=annot_files, position_files=position_files,
+				Visium=True, select_genes=select_genes, h_st=VISIUM_H_ST, w_st=VISIUM_W_ST)
 	else:
-		raise NotImplementedError
+		if use_image:
+			dat_image = PatchDataset(patch_dirs, annot_files=annot_files, position_files=position_files,
+				Visium=True, img_transforms=img_transforms)
+		if use_count:
+			dat_count = CountDataset(count_files, annot_files=annot_files, position_files=position_files,
+				Visium=True, select_genes=select_genes)
+
+	if use_image and use_count:
+		if not spatial:
+			raise NotImplementedError("Need to ensure indexing matches between spots in datasets")
+		return MMStackDataset(dat_image, dat_count)
+	elif use_image:
+		return dat_image
+	else:
+		return dat_count
+
 
 # Generate unified countfiles containing same genes in same order from a list of spaceranger directories
 def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=None):
@@ -162,8 +173,10 @@ def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=
 	for filename in result.columns.levels[0]:
 		result[filename].to_csv(filename+suffix,sep='\t',index=True)
 
+
+# Read in the result of a Spaceranger run as a (genes, spots) count DataFrame
 def read_feature_matrix(srd):
-	matrix_dir = os.path.join(srd, "outs/filtered_feature_bc_matrix/")
+	matrix_dir = os.path.join(srd, "outs", "filtered_feature_bc_matrix")
 	mat = scipy.io.mmread(os.path.join(matrix_dir, "matrix.mtx.gz"))
 
 	features_path = os.path.join(matrix_dir, "features.tsv.gz")
@@ -173,15 +186,35 @@ def read_feature_matrix(srd):
 	barcodes = [row[0] for row in csv.reader(gzip.open(barcodes_path, "rt"), delimiter="\t")]
 
 	df = pd.DataFrame.sparse.from_spmatrix(mat, index=feature_ids, columns=barcodes)
-	return df 
+	return df
+
+
+# Create a DataFrame mapping ENSEMBL to gene_symbols for all genes detected by Spaceranger
+def read_feature_names(srd):
+	features_path = os.path.join(srd, "outs", "filtered_feature_bc_matrix", "features.tsv.gz")
+	feature_names = pd.read_csv(features_path, header=None, index_col=0, sep='\t', 
+		names=['ENSEMBL','gene_symbol'], usecols=[0,1])
+	return feature_names
+
 
 # Create an AnnData object containing the annotated count data from multiple Visium arrays
 def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
+	'''
+	Parameters:
+	----------
+	spaceranger_dirs: iterable of path
+		path to spaceranger output directories for each Visium array in dataset
+	annot_files: iterable of path, or None
+		path to Loupe annotation file for each array in dataset; None for un-annotated data
+	destfile: path or None
+		path in which to save generated AnnData object
+	'''
 	adata_list = []
 
 	for i, srd in enumerate(spaceranger_dirs):
 		df_counts = read_feature_matrix(srd).T
 		df_pos = visium_get_positions(srd)
+		df_feats = read_feature_names(srd)
 
 		barcodes = df_pos[df_pos['in_tissue']==1].index
 
@@ -203,17 +236,100 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 			obs['annotation'] = df_annot.loc[barcodes].iloc[:,0]
 		obs.index = ['%s_%d_%d' % (arr,x,y) for x,y in zip(obs['x'].values, obs['y'].values)]
 
-		adata = ad.AnnData(X=df_counts.loc[barcodes, :].values, 
-			var=pd.DataFrame(index=df_counts.columns), 
-			obs=obs)
+		var = pd.DataFrame({'gene_symbol':df_feats.loc[df_counts.columns, 'gene_symbol']}, 
+			index=df_counts.columns)
+
+		adata = ad.AnnData(X=sparse.csr_matrix(df_counts.loc[barcodes, :].values), 
+			var=var, obs=obs)
 		adata_list.append(adata)
 
-	adata_all = ad.concat(adata_list, axis=0, join='outer')
+	# 'merge' option required to bring along other columns ('gene_symbol') from component .vars
+	adata_all = ad.concat(adata_list, axis=0, join='outer', merge='first')
 
 	if destfile is not None:
 		adata_all.write(destfile, compression='gzip')
 
 	return adata_all
+
+
+# Create an AnnData object containing (annotated) count and image data from multiple Visium arrays.
+# Stores only path to extracted image file per spot.
+def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_image_files=None,
+	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0, save_patches_to=None):
+	'''
+	Parameters:
+	----------
+	spaceranger_dirs: iterable of path
+		path to spaceranger output directories for each Visium array in dataset
+	imgpatch_dirs: iterable of path, or None
+		path to directory containing extracted image patches for each spot (formatted [array]_[x]_[y].jpg)
+	fullres_image_files: iterable of path, or None
+		path to full-resolution image file for each Visium array (required if imgpatch_dirs is None)
+	annot_files: iterable of path, or None
+		path to Loupe annotation file for each array in dataset; None for un-annotated data
+	destfile: path or None
+		path in which to save generated AnnData object
+	patch_size_px: int or None
+		width of patches, in pixels, to be extracted at each spot location. Supercedes patch_size_um
+	patch_size_um: float or None
+		width of patches, in um, to be extracted at each spot location. Resolution is inferred from Spaceranger position file.
+	save_patches_to: path or None
+		path to top-level directory in which to save image patches (one sub-directory created per array);
+		or None to save in-place in Spaceranger directory for each array
+	'''
+	adata_count = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=None)
+
+	if imgpatch_dirs is None and fullres_image_files is None:
+		raise ValueError('Must provide either patched image directories or fullres images')
+
+	elif imgpatch_dirs is None:
+		if patch_size_px is not None:
+			patch_suffix = '_patches%dpx' % patch_size_px
+		else:
+			patch_suffix = '_patches%dum' % patch_size_um
+
+		if save_patches_to is None:
+			imgpatch_dirs = [os.path.join(srd, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+		else:
+			if not os.path.exists(save_patches_to):
+				os.mkdir(save_patches_to)
+			imgpatch_dirs = [os.path.join(save_patches_to, Path(srd).name+patch_suffix) for srd in spaceranger_dirs]
+
+		# Extract image patches for all arrays from which they have not yet been
+		# TODO: abstract from this and create_visium_dataset?
+		for imfile, pdir, srd in zip(fullres_image_files, imgpatch_dirs, spaceranger_dirs):
+			if not os.path.exists(pdir):
+				if not os.path.exists(imfile):
+					raise ValueError('Could not find image file: %s' % imfile)
+
+				if patch_size_px is None:
+					ps = distance_um_to_px(srd, patch_size_um)
+				else:
+					ps = patch_size_px
+				save_visium_patches(imfile, spaceranger_dir=srd, dest_dir=pdir, patch_size=ps)
+
+	# Subset Visium count AnnData to only contain patches for which there is image data available
+	adata_list = []
+	for srd, pdir in zip(spaceranger_dirs, imgpatch_dirs):
+		arr = Path(srd).stem
+		adata_arr = adata_count[adata_count.obs.array == arr].copy()
+
+		imfiles = [os.path.join(pdir, '%s_%d_%d.jpg' % (arr, x, y)) for x,y in zip(adata_arr.obs.x, adata_arr.obs.y)]
+		adata_arr.obs['imgpath'] = imfiles
+
+		# Keep only spots for which image data exist
+		keep_inds = [os.path.exists(im) for im in imfiles]
+		adata_arr = adata_arr[keep_inds]
+
+		adata_list.append(adata_arr)
+
+	# 'merge' option required to bring along other columns ('gene_symbol') from component .vars
+	adata_img = ad.concat(adata_list, axis=0, join='outer', merge='first')
+
+	if destfile is not None:
+		adata_img.write(destfile, compression='gzip')
+
+	return adata_img
 
 
 if __name__ == '__main__':

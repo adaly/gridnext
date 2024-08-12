@@ -193,7 +193,7 @@ def to_loupe_annots(annot_tensor, position_file, output_file, annot_names=None, 
 
 
 # Convert AnnData of a single Visium array to paired input (features, h_st, w_st) and (h_st, w_st) label tensors.
-def anndata_to_grids(adata, labels, h_st=78, w_st=64, use_pcs=False, vis_coords=True):
+def anndata_to_grids(adata, labels, obs_x='x', obs_y='y', h_st=78, w_st=64, use_pcs=False, vis_coords=True):
     if not use_pcs:
         counts_grid = torch.zeros((len(adata.var), h_st, w_st))
     else:
@@ -207,19 +207,10 @@ def anndata_to_grids(adata, labels, h_st=78, w_st=64, use_pcs=False, vis_coords=
     else:
         dat = adata.X
 
-    for i, (x,y) in enumerate(zip(adata.obs.x, adata.obs.y)):
+    for i, (x,y) in enumerate(zip(adata.obs[obs_x], adata.obs[obs_y])):
         if vis_coords:
             x, y = pseudo_hex_to_oddr(x, y)
         labels_grid[y,x] = labels[i] + 1
-
-        '''
-        if use_pcs:
-            counts_grid[:,y,x] = torch.tensor(adata.obsm['X_pca'][i,:use_pcs])
-        elif sparse.issparse(adata.X):
-            counts_grid[:,y,x] = torch.tensor(np.array(adata.X[i,:].todense()))
-        else:
-            counts_grid[:,y,x] = torch.tensor(adata.X[i,:])
-        '''
         counts_grid[:,y,x] = torch.tensor(dat[i,:])
         
     return counts_grid.float(), labels_grid.long()

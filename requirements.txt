@@ -1,6 +1,6 @@
 numpy
 pandas
-torch>=2.0.0
+torch>=2.1.0
 torchvision
 matplotlib
 scipy
@@ -11,3 +11,5 @@ tqdm
 hexagdly
 torch_geometric
 scanpy
+einops
+local_attention

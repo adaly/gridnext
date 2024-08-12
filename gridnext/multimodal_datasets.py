@@ -1,17 +1,130 @@
 import os
 import re
-import time
+import logging
 import numpy as np
 import pandas as pd
+
 import torch
+from torch.utils.data import StackDataset
 from torchvision.transforms import Compose, ToTensor
 
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 from gridnext.count_datasets import CountDataset, CountGridDataset
+from gridnext.count_datasets import AnnDataset, AnnGridDataset
 from gridnext.imgprocess import pseudo_hex_to_oddr
 
+
+# Accepts tuple of (Dataset1, Dataset2) of identical length and output dimension
+# - Zeroes out entries in output for which two datasets do not agree
+class MMStackDataset(StackDataset):
+	def __getitem__(self, idx):
+		(x1,y1), (x2,y2) = super(MMStackDataset, self).__getitem__(idx)
+
+		diff = y1 != y2
+		y = torch.clone(y1)
+		y[diff] = 0
+
+		return (x1, x2), y
+
+
+# Accepts AnnData object constructed with visium_datasets.create_visium_anndata_img
+class MMAnnDataset(AnnDataset):
+	'''
+	Parameters:
+	----------
+	adata: AnnData
+		AnnData object containing count data (in X/obsm) and image data (in obs) from ST arrays
+	obs_label: str
+		column in adata.obs containing the spot labels to predict
+	obs_img: str
+		column in adata.obs containing paths to individual spot images
+	use_pcs: int or None
+		number of PCs (from adata.obsm['X_pca']) to use as input, or None to use adata.X
+	img_transforms: torchvision.Transform
+		preprocessing transforms to apply to image patches after loading
+	'''
+	def __init__(self, adata, obs_label, obs_img='imgpath', use_pcs=None, img_transforms=None):
+		super(MMAnnDataset, self).__init__(adata, obs_label, use_pcs=use_pcs)
+
+		self.imgfiles = adata.obs[obs_img]
+
+		if img_transforms is None:
+			self.preprocess = Compose([ToTensor()])
+		else:
+			self.preprocess = img_transforms
+
+	def __getitem__(self, idx):
+		x_count, y = super(MMAnnDataset, self).__getitem__(idx)
+		x_image = Image.open(self.imgfiles[idx])
+		x_image = self.preprocess(x_image).float()
+
+		return (x_image, x_count), y
+
+class MMAnnGridDataset(AnnGridDataset):
+	'''
+	Parameters:
+	----------
+	adata: AnnData
+		AnnData object containing count data (in X/obsm) and image data (in obs) from Visium arrays
+	obs_label: str
+		column in adata.obs containing the spot labels to predict
+	obs_arr: str
+		column in adata.obs containing the array labels for each spot
+	obs_img: str
+		column in adata.obs containing paths to individual spot images
+	use_pcs: int or None
+		number of PCs (from adata.obsm['X_pca']) to use as input, or None to use adata.X
+	img_transforms: torchvision.Transform
+		preprocessing transforms to apply to image patches after loading
+	obs_x, obs_y: str
+		column in adata.obs containing x and y ST array coordinates
+	h_st, w_st: int
+		number of rows, columns in ST array
+	vis_coords: bool
+		whether the coordinates in adata.obs.obs_x and adata.obs.obs_y are in Visium pseudo-hex format
+	'''
+	def __init__(self, adata, obs_label, obs_arr, obs_img='imgpath', use_pcs=None, img_transforms=None, 
+		obs_x='x', obs_y='y', h_st=78, w_st=64, vis_coords=True):
+
+		super(MMAnnGridDataset, self).__init__(adata, obs_label, obs_arr, obs_x=obs_x, obs_y=obs_y,
+			h_st=h_st, w_st=w_st, use_pcs=use_pcs, vis_coords=vis_coords)
+
+		self.obs_img = obs_img
+
+		if img_transforms is None:
+			self.preprocess = Compose([ToTensor()])
+		else:
+			self.preprocess = img_transforms
+
+	def __getitem__(self, idx):
+		x_count, y = super(MMAnnGridDataset, self).__getitem__(idx)
+
+		adata_arr = self.adata[self.adata.obs[self.obs_arr]==self.arrays[idx]]
+		patch_grid = None
+		for imfile, a_x, a_y in zip(adata_arr.obs[self.obs_img], adata_arr.obs[self.obs_x], 
+			adata_arr.obs[self.obs_y]):
+			
+			patch = Image.open(imfile)
+			patch = self.preprocess(patch)
+
+			if patch_grid is None:
+				c,h,w = patch.shape
+				patch_grid = torch.zeros(self.h_st, self.w_st, c, h, w)
+			
+			if self.vis_coords:
+				x, y = pseudo_hex_to_oddr(a_x, a_y)
+			else:
+				x, y = a_x, a_y
+			patch_grid[y, x] = patch
+
+		x_image = patch_grid.float()
+
+		return (x_image, x_count), y
+
+
+############ CURRENTLY DEFUNCT ############
 
 # Currently expects Splotch-formatted annotation files, which are useful because one-hot representations
 # define consistent class indexing across samples. 
@@ -124,41 +237,3 @@ class MultiModalGridDataset(CountGridDataset):
 
 		return counts_grid, patch_grid.float(), annots_grid
 
-
-if __name__ == '__main__':
-	train_tissues = ['151507', '151508', '151509', '151510', '151669', '151670', '151671', '151672', '151673', '151674']
-
-	data_dir = '/Users/adaly/Documents/Splotch_projects/Maynard_DLPFC/data/'
-	countfiles_train = [os.path.join(data_dir, 'Countfiles_Visium_norm/%s_stdata_aligned_counts_IDs.txt.unified.tsv') % s for s in train_tissues]
-	annotfiles_train = [os.path.join(data_dir, 'Covariates_Visium/%s.tsv') % s for s in train_tissues]
-	imgfiles_train = [os.path.join(data_dir, 'maynard_patchdata_oddr/%s_full_image/') % s for s in train_tissues]
-
-	# Joana's manually curated list of layer marker genes:
-	jp_markers = {
-		'MBP': 'ENSG00000197971',    # WM
-		'SNAP25': 'ENSG00000132639', # GM (Layers 1-6)
-		'PCP4': 'ENSG00000183036',   # Layer 5
-		'RORB': 'ENSG00000198963',   # Layer 4
-		'SYNPR': 'ENSG00000163630',  # Layer 6
-		'MFGE8': 'ENSG00000140545',
-		'CBLN2': 'ENSG00000141668',
-		'RPRM': 'ENSG00000177519',
-		'NR4A2': 'ENSG00000153234',
-		'CXCL14': 'ENSG00000145824',
-		'C1QL2': 'ENSG00000144119',
-		'CUX2': 'ENSG00000111249',
-		'CARTPT': 'ENSG00000164326',
-		'CCK': 'ENSG00000187094'
-	}
-	select_genes = [ensmbl for _, ensmbl in jp_markers.items()]
-
-	#ds = MultiModalDataset(countfiles_train, imgfiles_train, annotfiles_train, select_genes=select_genes)
-	
-	ds2 = MultiModalGridDataset(countfiles_train, imgfiles_train, annotfiles_train, select_genes=select_genes)
-
-	start = time.time()
-	cmat, imat, amat = ds2[9]
-	print(cmat.shape, cmat.min(), cmat.max())
-	print(imat.shape, imat.min(), imat.max())
-	print(amat)
-	print(time.time()-start)

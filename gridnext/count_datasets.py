@@ -306,7 +306,7 @@ class CountGridDataset(Dataset):
 ############### AnnData-based Datasets ###############
 
 class AnnDataset(Dataset):
-    def __init__(self, adata, obs_label, use_pcs=False):
+    def __init__(self, adata, obs_label, use_pcs=None):
         '''
         Parameters:
         ----------
@@ -324,7 +324,7 @@ class AnnDataset(Dataset):
 
         self.le = LabelEncoder()
         self.labels = self.le.fit_transform(adata.obs[obs_label])
-        self.classes = le.classes_
+        self.classes = self.le.classes_
     
     def __len__(self):
         return len(self.adata)
@@ -335,6 +335,9 @@ class AnnDataset(Dataset):
             x = self.adata.obsm['X_pca'][idx, :self.use_pcs]
         else:
             x = self.adata.X[idx, :]
+
+        if issparse(x):
+            x = np.array(x.todense()).squeeze()
         
         return torch.from_numpy(x), torch.tensor(y).long()
 
@@ -376,7 +379,7 @@ def anndata_to_tensordataset(adata, obs_label, use_pcs=False):
 # Subset AnnData object by obs_arr (e.g., Visium array ID)
 # -> FAST instantiation (<1s), SLOW accession (~20s/array)
 class AnnGridDataset(AnnDataset):
-    def __init__(self, adata, obs_label, obs_arr, h_st=78, w_st=64, use_pcs=False, 
+    def __init__(self, adata, obs_label, obs_arr, obs_x='x', obs_y='y', h_st=78, w_st=64, use_pcs=None, 
                  vis_coords=True):
         '''
         Parameters:
@@ -398,6 +401,8 @@ class AnnGridDataset(AnnDataset):
         '''
         super(AnnGridDataset, self).__init__(adata, obs_label, use_pcs)
         
+        self.obs_x = obs_x
+        self.obs_y = obs_y
         self.h_st = h_st
         self.w_st = w_st
         self.obs_arr = obs_arr
@@ -406,20 +411,20 @@ class AnnGridDataset(AnnDataset):
         self.arrays = adata.obs[obs_arr].unique()
     
     def __len__(self):
-        return len(self.adata.obs[self.obs_arr].unique())
+        return len(self.arrays)
     
     def __getitem__(self, idx):
         adata_arr = self.adata[self.adata.obs[self.obs_arr]==self.arrays[idx]]
         lbls_arr = self.le.transform(adata_arr.obs[self.obs_label].values)
         
-        counts_grid, labels_grid = anndata_to_grids(adata_arr, lbls_arr, self.h_st, 
-                                                    self.w_st, self.use_pcs, self.vis_coords)
+        counts_grid, labels_grid = anndata_to_grids(adata_arr, lbls_arr, obs_x=self.obs_x, obs_y=self.obs_y, 
+            h_st=self.h_st, w_st=self.w_st, use_pcs=self.use_pcs, vis_coords=self.vis_coords)
         return counts_grid.float(), labels_grid.long()
 
     
 # Load full datset into memory as TensorDataset -- slow instantiation
 # -> SLOW instantiation (~2s/array), FAST accession (<1s)
-def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64, 
+def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, obs_x='x', obs_y='y', h_st=78, w_st=64, 
                                     use_pcs=False, vis_coords=True, arrays_ordered=None):
     '''
     Parameters:
@@ -463,7 +468,8 @@ def anndata_arrays_to_tensordataset(adata, obs_label, obs_arr, h_st=78, w_st=64,
             continue
         lbls_arr = le.transform(adata_arr.obs[obs_label].values)
         
-        cg, lg = anndata_to_grids(adata_arr, lbls_arr, h_st, w_st, use_pcs, vis_coords)
+        cg, lg = anndata_to_grids(adata_arr, lbls_arr, obs_x=obs_x, obs_y=obs_y, h_st=h_st, w_st=w_st, 
+            use_pcs=use_pcs, vis_coords=vis_coords)
         count_grids.append(cg)
         label_grids.append(lg)
             

@@ -1,8 +1,13 @@
 import os
 import glob
+import json
 import numpy as np
 import pandas as pd
+
+import pkgutil
+from io import StringIO
 from pathlib import Path
+
 import torch
 from torchvision import transforms
 
@@ -204,6 +209,10 @@ def grid_from_wsi_visium(fullres_imgfile, spaceranger_dir, patch_size=256, windo
 		x_ind, y_ind = pseudo_hex_to_oddr(row['array_col'], row['array_row'])
 		x_px, y_px = df.iloc[i]['pxl_col_in_fullres'], df.iloc[i]['pxl_row_in_fullres']
 
+		# Account for fractional pixel coordinates (rare)
+		x_px = int(np.rint(x_px))
+		y_px = int(np.rint(y_px))
+
 		# Account for image padding
 		x_px += w//2
 		y_px += w//2
@@ -280,6 +289,65 @@ def save_visium_patches_all(wsi_files, spaceranger_dirs, dest_dir, patch_size=25
 		slide = str(Path(img_file).stem)
 		dest_subdir = os.path.join(dest_dir, slide)
 		save_visium_patches(img_file, srd, dest_subdir, patch_size, window_size)
+
+# Create pseudo-Visium data (tissue_positions.csv and scalefactors_json.json) from a cropped image
+def pseudo_visium_spots(fullres_roi, dest_dir, image_width_mm=8, spot_width_um=55, spot_spacing_um=100):
+	'''
+	Parameters:
+	----------
+	fullres_roi: path
+		path to fullres image file that has been cropped to ROI that would fit on Visium array (e.g., 8mm^2)
+	dest_dir: path
+		directory in which to save pseudo-Visium files (tissue_positions.csv and scalefactors_json.json)
+	image_width_um: float
+		width of image ROI in mm
+	spot_width_um: float
+		width of simulated spots in um
+	spot_spacing_um: float
+		distance between adjacent spots in um
+	'''
+	resource_package = 'gridnext'
+	pos_tpath = '/'.join(('visium_templates', 'tissue_positions.csv'))
+	scale_tpath = '/'.join(('visium_templates', 'scalefactors_json.json'))
+
+	pos_template = pkgutil.get_data(resource_package, pos_tpath).decode('utf-8')
+	scale_template = pkgutil.get_data(resource_package, scale_tpath).decode('utf-8')
+
+	df_pos = pd.read_csv(StringIO(pos_template), header=0, index_col=0, sep=',')
+	dict_scale = json.loads(scale_template)
+
+	img = np.array(Image.open(fullres_roi))
+	w, h, c = img.shape 
+
+	px_per_mm = w / image_width_mm
+	spot_width_px = px_per_mm * spot_width_um / 1000
+	spot_space_px = px_per_mm * spot_spacing_um / 1000
+
+	ul = (int(np.rint(0.75*px_per_mm + spot_width_px/2)), 
+		  int(np.rint(0.75*px_per_mm + spot_width_px/2)))
+	dx = spot_space_px
+	dy = spot_space_px * np.sqrt(3) / 2
+
+	# Fill values in positions, scale factor templates
+	for bc in df_pos.index:
+		df_pos.loc[bc, 'pxl_col_in_fullres'] = int(np.rint(ul[0] + df_pos.loc[bc, 'array_col']/2 * dx))
+		df_pos.loc[bc, 'pxl_row_in_fullres'] = int(np.rint(ul[1] + df_pos.loc[bc, 'array_row'] * dy))
+
+	dict_scale['fiducial_diameter_fullres'] = dict_scale['fiducial_diameter_fullres'] / dict_scale['spot_diameter_fullres'] * spot_width_px
+	dict_scale['spot_diameter_fullres'] = spot_width_px
+
+	# Write files to '[array_name]/outs/spatial/tissue_positions.csv' and '[array_name]/outs/spatial/scalefactors_json.json'
+	arr_name = Path(fullres_roi).stem.replace(' ', '_')
+	pcomps = [dest_dir, arr_name, 'outs', 'spatial']
+	out_path = ''
+
+	for p in pcomps:
+		out_path = os.path.join(out_path, p)
+		if not os.path.exists(out_path):
+			os.mkdir(out_path)
+	df_pos.to_csv(os.path.join(out_path, 'tissue_positions.csv'))
+	json.dump(dict_scale, open(os.path.join(out_path, 'scalefactors_json.json'), 'w+')) 
+	
 
 
 if __name__ == '__main__':
