@@ -188,10 +188,6 @@ def read_feature_matrix(srd, individual_files=None):
 	 normally: "matrix.mtx.gz", "features.tsv.gz" and "barcodes.tsv.gz"
 	 if none then look in srd
 	'''
-	matrix_dir = ""
-	features_path = ""
-	barcodes_path = ""
-
 	if individual_files is None:
 		individual_files=find_feature_matrix_files(srd)
 	
@@ -210,8 +206,12 @@ def read_feature_matrix(srd, individual_files=None):
 
 
 # Create a DataFrame mapping ENSEMBL to gene_symbols for all genes detected by Spaceranger
-def read_feature_names(srd):
-	features_path = os.path.join(srd, "outs", "filtered_feature_bc_matrix", "features.tsv.gz")
+def read_feature_names(srd,individual_files=None):
+	if individual_files is None:
+		individual_files=find_feature_matrix_files(srd)
+		
+	features_path = individual_files["features"]
+
 	feature_names = pd.read_csv(features_path, header=None, index_col=0, sep='\t', 
 		names=['ENSEMBL','gene_symbol'], usecols=[0,1])
 	return feature_names
