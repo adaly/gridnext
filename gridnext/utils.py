@@ -275,7 +275,7 @@ def visium_find_position_file(spaceranger_dir):
             return pos_path
     raise ValueError("Cannot location position file for %s" % spaceranger_dir)
 
-# Given Spaceranger directory, locate file mapping spot barcodes to array/pixel coordinates
+# Given Spaceranger directory, locate  "matrix.mtx.gz","features.tsv.gz","barcodes.tsv.gz"
 def find_feature_matrix_files(spaceranger_dir):
     existing_paths = glob.glob(spaceranger_dir+'/**', recursive = True)
     found={}
