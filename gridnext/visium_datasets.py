@@ -10,7 +10,7 @@ import anndata as ad
 from pathlib import Path
 from scipy import sparse
 
-from gridnext.utils import visium_get_positions, visium_find_position_file
+from gridnext.utils import visium_get_positions, visium_find_position_file, find_feature_matrix_files
 from gridnext.imgprocess import save_visium_patches, VISIUM_H_ST, VISIUM_W_ST, distance_um_to_px
 from gridnext.image_datasets import PatchDataset, PatchGridDataset
 from gridnext.count_datasets import CountDataset, CountGridDataset
@@ -175,14 +175,30 @@ def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=
 
 
 # Read in the result of a Spaceranger run as a (genes, spots) count DataFrame
-def read_feature_matrix(srd):
-	matrix_dir = os.path.join(srd, "outs", "filtered_feature_bc_matrix")
-	mat = scipy.io.mmread(os.path.join(matrix_dir, "matrix.mtx.gz"))
+def read_feature_matrix(srd, individual_files=None):
+	'''
+	Parameters:
+	----------
+	srd: Spaceranger-like directory that should contain in any level the files 
+		"matrix.mtx.gz", "features.tsv.gz" and "barcodes.tsv.gz"
+		it need not be specifically an "outs" directory
 
-	features_path = os.path.join(matrix_dir, "features.tsv.gz")
+	individual_files: a dict-like object pointing to the locations of 
+	"matrix", "features" and "barcodes
+	 normally: "matrix.mtx.gz", "features.tsv.gz" and "barcodes.tsv.gz"
+	 if none then look in srd
+	'''
+	if individual_files is None:
+		individual_files=find_feature_matrix_files(srd)
+	
+	matrix_dir =    individual_files["matrix"]
+	features_path = individual_files["features"]
+	barcodes_path = individual_files["barcodes"]	
+
+	mat = scipy.io.mmread(matrix_dir)
+
 	feature_ids = [row[0] for row in csv.reader(gzip.open(features_path, "rt"), delimiter="\t")]
 
-	barcodes_path = os.path.join(matrix_dir, "barcodes.tsv.gz")
 	barcodes = [row[0] for row in csv.reader(gzip.open(barcodes_path, "rt"), delimiter="\t")]
 
 	df = pd.DataFrame.sparse.from_spmatrix(mat, index=feature_ids, columns=barcodes)
@@ -190,8 +206,12 @@ def read_feature_matrix(srd):
 
 
 # Create a DataFrame mapping ENSEMBL to gene_symbols for all genes detected by Spaceranger
-def read_feature_names(srd):
-	features_path = os.path.join(srd, "outs", "filtered_feature_bc_matrix", "features.tsv.gz")
+def read_feature_names(srd,individual_files=None):
+	if individual_files is None:
+		individual_files=find_feature_matrix_files(srd)
+		
+	features_path = individual_files["features"]
+
 	feature_names = pd.read_csv(features_path, header=None, index_col=0, sep='\t', 
 		names=['ENSEMBL','gene_symbol'], usecols=[0,1])
 	return feature_names

@@ -11,6 +11,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy import sparse
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import confusion_matrix, roc_curve, auc, roc_auc_score
+import glob
 
 
 ############### Prediction functions ###############
@@ -266,12 +267,27 @@ def visium_get_positions_fromfile(position_file):
 
 # Given Spaceranger directory, locate file mapping spot barcodes to array/pixel coordinates
 def visium_find_position_file(spaceranger_dir):
-    position_paths = [
-        os.path.join("outs", "spatial", "tissue_positions.csv"),      # Spaceranger >=2.0
-        os.path.join("outs", "spatial", "tissue_positions_list.csv")  # Spaceranger <2.0
-    ]
+    position_paths = glob.glob(spaceranger_dir+'/**/*.csv', recursive = True)
+    # tissue_positions.csv # Spaceranger >=2.0
+    # tissue_positions_list.csv # Spaceranger <2.0
     for pos_path in position_paths:
-        if os.path.exists(os.path.join(spaceranger_dir, pos_path)):
-            return os.path.join(spaceranger_dir, pos_path)
+        if os.path.exists(pos_path) and "tissue_positions" in pos_path:
+            return pos_path
+    raise ValueError("Cannot location position file for %s" % spaceranger_dir)
+
+# Given Spaceranger directory, locate  "matrix.mtx.gz","features.tsv.gz","barcodes.tsv.gz"
+def find_feature_matrix_files(spaceranger_dir):
+    existing_paths = glob.glob(spaceranger_dir+'/**', recursive = True)
+    found={}
+    keys=["matrix","features","barcodes"]
+    values=["matrix.mtx.gz","features.tsv.gz","barcodes.tsv.gz"]
+    for k,v in zip(keys, values):
+        for e_path in existing_paths:
+            if v in e_path:
+                found[k]=e_path
+                break
+    if all(k in found for k in keys):
+        return found
+    
     raise ValueError("Cannot location position file for %s" % spaceranger_dir)
 
