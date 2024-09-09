@@ -14,7 +14,7 @@ from torch import nn
 
 # Preprocess raw count data for input to scBERT model
 def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None, min_depth=None, 
-	gene_names=None):
+	gene_symbols=None, target_genes=None):
 	'''
 	Parameters:
 	----------
@@ -24,21 +24,21 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 		number of counts to normalize each spot to
 	counts_layer: str or None
 		layer of adata containing raw counts, or "None" to default to adata.X
-	obs_label: str or None
-		column in adata.obs containing spot labels to train on
 	min_genes: int or None
 		filter spots with fewer than min_genes
 	min_depth: int or None
 		filter spots with fewer than min_counts (prior to depth normalization)
-	gene_names: path or None
+	gene_symbols: str or None
+		column name in adata.var storing gene_symbols matching target_genes
+	target_genes: path or None
 		path to single-column CSV file containing ordered list of gene names to pull from adata,
 		or "None" to default to the default list of gene2vec.
 	'''
-	if gene_names is None:
+	if target_genes is None:
 		ref_data = pkgutil.get_data('gridnext.llm', 'gene2vec_names.csv').decode('utf-8')
 		ref_data = StringIO(ref_data)
 	else:
-		ref_data = gene_names
+		ref_data = target_genes
 	ref_names = pd.read_csv(ref_data, header=None, index_col=0).index
 
 	if counts_layer is None:
@@ -47,7 +47,15 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 		X = adata.layers[counts_layer]
 	counts = sparse.lil_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
 	ref = ref_names.tolist()
-	obj = adata.var_names.tolist()
+
+	if gene_symbols is not None:
+		obj = adata.var[gene_symbols].tolist()
+	else:
+		obj = adata.var_names.tolist()
+
+	# ensure overlap between adata.var and target_genes
+	if len(set(obj) & set(ref)) == 0:
+		raise ValueError("No matches to target_genes in reference -- check indexing of adata.var and/or set gene_symbols argument")
 
 	for i in range(len(ref)):
 		if ref[i] in obj:
