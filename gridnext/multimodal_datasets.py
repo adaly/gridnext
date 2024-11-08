@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 import torch
-from torch.utils.data import StackDataset
+from torch.utils.data import Dataset
 from torchvision.transforms import Compose, ToTensor
 
 from PIL import Image
@@ -16,11 +16,19 @@ from gridnext.count_datasets import AnnDataset, AnnGridDataset
 from gridnext.imgprocess import pseudo_hex_to_oddr
 
 
-# Accepts tuple of (Dataset1, Dataset2) of identical length and output dimension
+# Accepts pair of image, count datasets of identical length and output dimension
 # - Zeroes out entries in output for which two datasets do not agree
-class MMStackDataset(StackDataset):
+class MMStackDataset(Dataset):
+	def __init__(self, image_dataset, count_dataset):
+		assert len(count_dataset) == len(image_dataset), "Datasets must be of the same length!"
+		self.count_dataset = count_dataset
+		self.image_dataset = image_dataset
+
+	def __len__(self):
+		return len(self.count_dataset)
+
 	def __getitem__(self, idx):
-		(x1,y1), (x2,y2) = super(MMStackDataset, self).__getitem__(idx)
+		(x1,y1), (x2,y2) = self.image_dataset[idx], self.count_dataset[idx]
 
 		diff = y1 != y2
 		y = torch.clone(y1)
