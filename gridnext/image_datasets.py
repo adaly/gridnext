@@ -17,6 +17,39 @@ from gridnext.count_datasets import pseudo_hex_to_oddr
 from gridnext.utils import read_annotfile
 
 
+class ImageAnnDataset(Dataset):
+	'''
+	Parameters:
+	----------
+	adata: AnnData
+		AnnData object containing count data (in X/obsm) and image data (in obs) from ST arrays
+	obs_label: str
+		column in adata.obs containing the spot labels to predict
+	obs_img: str
+		column in adata.obs containing paths to individual spot images
+	img_transforms: torchvision.Transform
+		preprocessing transforms to apply to image patches after loading
+	'''
+
+	def __init__(self, adata, obs_img='imgpath', img_transforms=None):
+		super(ImageAnnDataset, self).__init__()
+	
+		self.imgfiles = adata.obs[obs_img]
+	
+		if img_transforms is None:
+			self.preprocess = Compose([ToTensor()])
+		else:
+			self.preprocess = img_transforms
+	
+	def __len__(self):
+		return len(self.imgfiles)
+	
+	def __getitem__(self, idx):
+		x_image = Image.open(self.imgfiles[idx])
+		x_image = self.preprocess(x_image).float()
+
+		return x_image
+
 class PatchDataset(Dataset):
 	def __init__(self, img_files, annot_files=None, position_files=None, Visium=True,
 		img_transforms=None, afile_delim=',', img_ext='jpg', verbose=False):
