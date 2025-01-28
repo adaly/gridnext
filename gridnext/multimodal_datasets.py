@@ -123,6 +123,30 @@ class MMAnnGridDataset(AnnGridDataset):
 
 		return (x_image, x_count), y
 
+#Special requirement for the gmm(f_counts+f(UNI))
+class MMFeatureGridDataset(AnnGridDataset):
+	def __init__(self, adata, obs_label, obsm_img, obs_arr='array', obs_x='x', obs_y='y',
+				 h_st=78, w_st=64, vis_coords=True):
+		super(MMFeatureGridDataset, self).__init__(adata, obs_label, obs_arr, obs_x=obs_x, obs_y=obs_y,
+												   h_st=h_st, w_st=w_st, use_pcs=False, vis_coords=vis_coords)
+		self.obsm_img = obsm_img
+		self.nfeats_img = adata.obsm[obsm_img].shape[1]
+
+	def __getitem__(self, idx):
+		x_count, y_count = super(MMFeatureGridDataset, self).__getitem__(idx)
+		adata_arr = self.adata[self.adata.obs[self.obs_arr] == self.arrays[idx]]
+		x_image = torch.zeros(self.nfeats_img, self.h_st, self.w_st)
+
+		for imfeats, a_x, a_y in zip(adata_arr.obsm[self.obsm_img],
+									 adata_arr.obs[self.obs_x],
+									 adata_arr.obs[self.obs_y]):
+			if self.vis_coords:
+				x, y = pseudo_hex_to_oddr(a_x, a_y)
+			else:
+				x, y = a_x, a_y
+			x_image[:, y, x] = torch.from_numpy(imfeats)
+
+		return (x_image, x_count), y_count
 
 ############ CURRENTLY DEFUNCT ############
 
