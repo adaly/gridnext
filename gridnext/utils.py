@@ -12,6 +12,8 @@ from scipy import sparse
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import confusion_matrix, roc_curve, auc, roc_auc_score
 
+import glob
+
 
 ############### Prediction functions ###############
 
