@@ -192,7 +192,7 @@ class GridNetHexOddr(GridNetHex):
 # - After applying classifiers to each modalities, concatenates along feature dimension before applying corrector
 class GridNetHexMM(GridNetHexOddr):
     def __init__(self, image_classifier, count_classifier, image_shape, count_shape, grid_shape, n_classes,
-        use_bn=True, atonce_patch_limit=None, image_f_dim=None, count_f_dim=None):
+        use_bn=True, atonce_patch_limit=None, atonce_count_limit=None, device="cpu", delay_sending_to_device=True, image_f_dim=None, count_f_dim=None):
         if image_f_dim is None:
             image_f_dim = n_classes
         if count_f_dim is None:
@@ -207,17 +207,26 @@ class GridNetHexMM(GridNetHexOddr):
         self.count_shape = count_shape
         self.image_f_dim = image_f_dim
         self.count_f_dim = count_f_dim
-        
+
+        self.mm_atonce_patch_limit=atonce_patch_limit
+        #atone patch limit exists already in the super class
+        self.mm_atonce_count_limit = atonce_count_limit
+        self.delay_sending_to_device = delay_sending_to_device
+        self.mode="count"        
 
     def _set_mode(self, mode):
-        if mode == 'image':
-            self.patch_classifier = self.image_classifier
-            self.patch_shape = self.image_shape
-            self.f_dim = self.image_f_dim
-        elif mode == 'count':
+        if mode == 'count':
             self.patch_classifier = self.count_classifier
             self.patch_shape = self.count_shape
             self.f_dim = self.count_f_dim
+            self.mode="count"
+            self.atonce_patch_limit=self.mm_atonce_count_limit
+        elif mode == 'image':
+            self.patch_classifier = self.image_classifier
+            self.patch_shape = self.image_shape
+            self.f_dim = self.image_f_dim
+            self.mode="image"
+            self.atonce_patch_limit = self.mm_atonce_patch_limit
         else:
             self.f_dim = self.count_f_dim + self.image_f_dim
 
@@ -227,10 +236,31 @@ class GridNetHexMM(GridNetHexOddr):
         x_image, x_count = x
 
         self._set_mode('count')
+
+        if self.delay_sending_to_device:
+            x_image=x_image.to("cpu") #if the image was in the GPU at this point it may be that
+            # it remains there and there is a copy in the cpu and we lose the reference to it
+            x_count=x_count.to(self.device)
+            torch.cuda.empty_cache()
+
+        # LES: I will accelerate this testing temporarily:
         ppg_count = super(GridNetHexMM, self).patch_predictions(x_count)
+        
         self._set_mode('image')
+        if self.delay_sending_to_device:
+            x_image = x_image.to(self.device)
+            x_count = x_count.to("cpu")
+            torch.cuda.empty_cache()
+
         ppg_image = super(GridNetHexMM, self).patch_predictions(x_image)
+        
+        del x_count,x_image
+        torch.cuda.empty_cache()
+
+        if self.delay_sending_to_device:
+            ppg_image = ppg_image.to(self.device)
+            ppg_count = ppg_count.to(self.device)
+
         self._set_mode('concat')
-
+        
         return torch.cat((ppg_count, ppg_image), dim=1)
-

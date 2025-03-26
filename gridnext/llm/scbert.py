@@ -13,8 +13,8 @@ from torch import nn
 
 
 # Preprocess raw count data for input to scBERT model
-def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None, min_depth=None, 
-	gene_names=None):
+def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None, 
+		      min_depth=None, gene_symbols=None, target_genes=None):
 	'''
 	Parameters:
 	----------
@@ -24,41 +24,49 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 		number of counts to normalize each spot to
 	counts_layer: str or None
 		layer of adata containing raw counts, or "None" to default to adata.X
-	obs_label: str or None
-		column in adata.obs containing spot labels to train on
 	min_genes: int or None
 		filter spots with fewer than min_genes
 	min_depth: int or None
 		filter spots with fewer than min_counts (prior to depth normalization)
-	gene_names: path or None
+	gene_symbols: str or None
+		column name in adata.var storing gene_symbols matching target_genes
+	target_genes: path or None
 		path to single-column CSV file containing ordered list of gene names to pull from adata,
 		or "None" to default to the default list of gene2vec.
 	'''
-	if gene_names is None:
+	if target_genes is None:
 		ref_data = pkgutil.get_data('gridnext.llm', 'gene2vec_names.csv').decode('utf-8')
 		ref_data = StringIO(ref_data)
 	else:
-		ref_data = gene_names
+		ref_data = target_genes
 	ref_names = pd.read_csv(ref_data, header=None, index_col=0).index
 
 	if counts_layer is None:
 		X = adata.X
 	else:
 		X = adata.layers[counts_layer]
-	counts = sparse.lil_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
 	ref = ref_names.tolist()
-	obj = adata.var_names.tolist()
 
-	for i in range(len(ref)):
-		if ref[i] in obj:
-			loc = obj.index(ref[i])
-			counts[:,i] = X[:,loc]
-
-	counts = counts.tocsr()
+	counts = sparse.csr_matrix((X.shape[0], len(ref_names)), dtype=np.float32)
 	new = ad.AnnData(X=counts)
 	new.var_names = ref
 	new.obs_names = adata.obs_names
 	new.obs = adata.obs
+
+	var_old=None
+	# AnnData-based way of populating empty counts matrix:
+	if gene_symbols is not None:
+		var_old = adata.var.copy()
+		adata.var = adata.var.set_index(gene_symbols)
+		adata.var.index=adata.var.index.astype(str) #LES: Quickfix instead of mod anndata
+		adata.var_names_make_unique()  # handles multiple ENSEMBL with same common name
+
+	genes_shared = set(adata.var.index.intersection(ref))
+	genes_shared=pd.CategoricalIndex(genes_shared)
+	new[:, genes_shared].X = adata[:, genes_shared].X
+
+	if gene_symbols is not None:
+		adata.var = var_old  # undo modification of original AnnData
 
 	if min_genes is not None or min_depth is not None:
 		sc.pp.filter_cells(new, min_genes=min_genes, min_counts=min_depth)
@@ -67,7 +75,6 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 	sc.pp.log1p(new, base=2)
 
 	return new
-	
 
 # scBERT model class; functional wrapper around PerformerLM
 class scBERT(PerformerLM):
