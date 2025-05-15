@@ -47,40 +47,22 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 		X = adata.layers[counts_layer]
 	ref = ref_names.tolist()
 
-	'''
-	# Original scBERT code (slow)
 	counts = sparse.lil_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
-	
-	if gene_symbols is not None:
-		obj = adata.var[gene_symbols].tolist()
-	else:
-		obj = adata.var_names.tolist()
-
-	# ensure overlap between adata.var and target_genes
-	if len(set(obj) & set(ref)) == 0:
-		raise ValueError("No matches to target_genes in reference -- check indexing of adata.var and/or set gene_symbols argument")
-
-	for i in range(len(ref)):
-		if ref[i] in obj:
-			loc = obj.index(ref[i])
-			counts[:,i] = X[:,loc]
-
-	counts = counts.tocsr()
-	'''
-	counts = sparse.csr_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
-	new = ad.AnnData(X=counts)
-	new.var_names = ref
-	new.obs_names = adata.obs_names
-	new.obs = adata.obs
 
 	# AnnData-based way of populating empty counts matrix:
 	if gene_symbols is not None:
 		var_old = adata.var.copy()
+		adata.var[gene_symbols] = adata.var[gene_symbols].astype(str)
 		adata.var = adata.var.set_index(gene_symbols)
-		adata.var.index = adata.var.index.astype(str)
 		adata.var_names_make_unique()  # handles multiple ENSEMBL with same common name
+
 	genes_shared = adata.var.index.intersection(ref)
-	new[:, genes_shared].X = adata[:, genes_shared].X
+	inds_shared = [ref.index(g) for g in genes_shared]
+	counts[:, inds_shared] = adata.X[:, inds_shared]
+
+	new = ad.AnnData(X=counts.tocsr(), obs=adata.obs)
+	new.var_names = ref
+	
 	if gene_symbols is not None:
 		adata.var = var_old  # undo modification of original AnnData
 
