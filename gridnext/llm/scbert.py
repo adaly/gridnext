@@ -45,9 +45,12 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 		X = adata.X
 	else:
 		X = adata.layers[counts_layer]
-	counts = sparse.lil_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
 	ref = ref_names.tolist()
 
+	'''
+	# Original scBERT code (slow)
+	counts = sparse.lil_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
+	
 	if gene_symbols is not None:
 		obj = adata.var[gene_symbols].tolist()
 	else:
@@ -63,10 +66,23 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 			counts[:,i] = X[:,loc]
 
 	counts = counts.tocsr()
+	'''
+	counts = sparse.csr_matrix((X.shape[0],len(ref_names)),dtype=np.float32)
 	new = ad.AnnData(X=counts)
 	new.var_names = ref
 	new.obs_names = adata.obs_names
 	new.obs = adata.obs
+
+	# AnnData-based way of populating empty counts matrix:
+	if gene_symbols is not None:
+		var_old = adata.var.copy()
+		adata.var = adata.var.set_index(gene_symbols)
+		adata.var.index = adata.var.index.astype(str)
+		adata.var_names_make_unique()  # handles multiple ENSEMBL with same common name
+	genes_shared = adata.var.index.intersection(ref)
+	new[:, genes_shared].X = adata[:, genes_shared].X
+	if gene_symbols is not None:
+		adata.var = var_old  # undo modification of original AnnData
 
 	if min_genes is not None or min_depth is not None:
 		sc.pp.filter_cells(new, min_genes=min_genes, min_counts=min_depth)

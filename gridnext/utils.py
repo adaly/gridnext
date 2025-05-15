@@ -244,13 +244,17 @@ def read_annotfile(afile, position_file=None, afile_delim=',', Visium=True):
         return coord_strs, annot_lbls
 
 # Given Spaceranger directory, locate and read mapping of spot barcodes to array/pixel coordinates
-def visium_get_positions(spaceranger_dir):
-    position_path = visium_find_position_file(spaceranger_dir)
+def visium_get_positions(spaceranger_dir, hd_binning=None):
+    position_path = visium_find_position_file(spaceranger_dir, hd_binning=hd_binning)
     positions = visium_get_positions_fromfile(position_path)
     return positions
 
 # Given position file, read mapping of spot barcodes to array/pixel coordinates
 def visium_get_positions_fromfile(position_file):
+    if position_file.endswith('.parquet'):
+        positions = pd.read_parquet(position_file).set_index('barcode')
+        return positions
+
     # Infer Spaceranger version from structure of file
     spaceranger_version = 1 
     with open(position_file, 'r') as fh:
@@ -266,7 +270,14 @@ def visium_get_positions_fromfile(position_file):
     return positions
 
 # Given Spaceranger directory, locate file mapping spot barcodes to array/pixel coordinates
-def visium_find_position_file(spaceranger_dir):
+def visium_find_position_file(spaceranger_dir, hd_binning=None):
+    if hd_binning is not None:
+        bin_dir = os.path.join(spaceranger_dir, 'outs', 'binned_outputs', hd_binning)
+        pos_path = os.path.join(bin_dir, 'spatial', 'tissue_positions.parquet')
+        if not os.path.exists(pos_path):
+            raise ValueError('Cannot locate position file for %s binning of %s' % (spaceranger_dir, hd_binning))
+        return pos_path
+
     position_paths = glob.glob(spaceranger_dir+'/**/*.csv', recursive = True)
     # tissue_positions.csv # Spaceranger >=2.0
     # tissue_positions_list.csv # Spaceranger <2.0
@@ -276,18 +287,28 @@ def visium_find_position_file(spaceranger_dir):
     raise ValueError("Cannot location position file for %s" % spaceranger_dir)
 
 # Given Spaceranger directory, locate  "matrix.mtx.gz","features.tsv.gz","barcodes.tsv.gz"
-def find_feature_matrix_files(spaceranger_dir):
-    existing_paths = glob.glob(spaceranger_dir+'/**', recursive = True)
-    found={}
+def find_feature_matrix_files(spaceranger_dir, hd_binning=None):
     keys=["matrix","features","barcodes"]
     values=["matrix.mtx.gz","features.tsv.gz","barcodes.tsv.gz"]
-    for k,v in zip(keys, values):
-        for e_path in existing_paths:
-            if v in e_path:
-                found[k]=e_path
-                break
+    found={}
+
+    # Visium HD
+    if hd_binning is not None:
+        bin_dir = os.path.join(spaceranger_dir, 'outs', 'binned_outputs', hd_binning)
+        mat_dir = os.path.join(bin_dir, 'filtered_feature_bc_matrix')
+        for k, v in zip(keys, values):
+            if os.path.exists(os.path.join(mat_dir, v)):
+                found[k] = os.path.join(mat_dir, v)
+    # Visium v1/v2
+    else:
+        existing_paths = glob.glob(spaceranger_dir+'/**', recursive = True)
+        for k,v in zip(keys, values):
+            for e_path in existing_paths:
+                if v in e_path:
+                    found[k]=e_path
+                    break
     if all(k in found for k in keys):
         return found
     
-    raise ValueError("Cannot location position file for %s" % spaceranger_dir)
+    raise ValueError("Cannot location matrix files for %s" % spaceranger_dir)
 

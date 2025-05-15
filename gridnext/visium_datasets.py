@@ -175,7 +175,7 @@ def visium_prepare_count_files(spaceranger_dirs, suffix, minimum_detection_rate=
 
 
 # Read in the result of a Spaceranger run as a (genes, spots) count DataFrame
-def read_feature_matrix(srd, individual_files=None):
+def read_feature_matrix(srd, individual_files=None, hd_binning=None):
 	'''
 	Parameters:
 	----------
@@ -189,8 +189,8 @@ def read_feature_matrix(srd, individual_files=None):
 	 if none then look in srd
 	'''
 	if individual_files is None:
-		individual_files=find_feature_matrix_files(srd)
-	
+		individual_files=find_feature_matrix_files(srd, hd_binning)
+
 	matrix_dir =    individual_files["matrix"]
 	features_path = individual_files["features"]
 	barcodes_path = individual_files["barcodes"]	
@@ -206,9 +206,9 @@ def read_feature_matrix(srd, individual_files=None):
 
 
 # Create a DataFrame mapping ENSEMBL to gene_symbols for all genes detected by Spaceranger
-def read_feature_names(srd,individual_files=None):
+def read_feature_names(srd,individual_files=None, hd_binning=None):
 	if individual_files is None:
-		individual_files=find_feature_matrix_files(srd)
+		individual_files=find_feature_matrix_files(srd, hd_binning)
 		
 	features_path = individual_files["features"]
 
@@ -218,7 +218,7 @@ def read_feature_names(srd,individual_files=None):
 
 
 # Create an AnnData object containing the annotated count data from multiple Visium arrays
-def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
+def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None, hd_binning=None):
 	'''
 	Parameters:
 	----------
@@ -232,9 +232,9 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 	adata_list = []
 
 	for i, srd in enumerate(spaceranger_dirs):
-		df_counts = read_feature_matrix(srd).T
-		df_pos = visium_get_positions(srd)
-		df_feats = read_feature_names(srd)
+		df_counts = read_feature_matrix(srd, hd_binning=hd_binning).T
+		df_pos = visium_get_positions(srd, hd_binning=hd_binning)
+		df_feats = read_feature_names(srd, hd_binning=hd_binning)
 
 		barcodes = df_pos[df_pos['in_tissue']==1].index
 
@@ -275,7 +275,8 @@ def create_visium_anndata(spaceranger_dirs, annot_files=None, destfile=None):
 # Create an AnnData object containing (annotated) count and image data from multiple Visium arrays.
 # Stores only path to extracted image file per spot.
 def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_image_files=None,
-	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0, save_patches_to=None):
+	annot_files=None, destfile=None, patch_size_px=None, patch_size_um=100.0, save_patches_to=None, 
+	hd_binning=None):
 	'''
 	Parameters:
 	----------
@@ -297,7 +298,7 @@ def create_visium_anndata_img(spaceranger_dirs, imgpatch_dirs=None, fullres_imag
 		path to top-level directory in which to save image patches (one sub-directory created per array);
 		or None to save in-place in Spaceranger directory for each array
 	'''
-	adata_count = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=None)
+	adata_count = create_visium_anndata(spaceranger_dirs, annot_files=annot_files, destfile=None, hd_binning=hd_binning)
 
 	if imgpatch_dirs is None and fullres_image_files is None:
 		raise ValueError('Must provide either patched image directories or fullres images')
