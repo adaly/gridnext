@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import to_hex
 
 from sklearn.preprocessing import label_binarize
 from sklearn.metrics import precision_recall_curve, roc_curve, auc, confusion_matrix
@@ -237,4 +239,34 @@ def plot_label_tensor(label_tensor, class_names=None, Visium=False, ax=None, leg
     if legend:
         ax.legend(bbox_to_anchor=(1,0), loc='lower left')
     
+    return ax
+
+# For use on graph data (torch_geometric.data.Data)
+def plot_graph_predictions(graph_data, model, class_names, palette='tab20'):
+    x = graph_data.pos[:,0]
+    y = graph_data.pos[:,1]
+    true = graph_data.y
+    model.eval()
+    with torch.no_grad():
+        outs = model(graph_data)
+        pred = torch.argmax(outs, dim=1)
+
+    N = len(class_names)
+    cmap = cm.get_cmap(palette, N)
+    colors = [to_hex(cmap(i)) for i in range(N)]
+
+    fig, ax = plt.subplots(1, 2, figsize=(8,3), constrained_layout=True)
+    for i in range(2):
+        ax[i].set_aspect('equal')
+        ax[i].axis('off')
+        ax[i].set_prop_cycle(color=colors)
+
+    for c, name in enumerate(class_names):
+        ax[0].scatter(x[true==c], y[true==c], label=name, s=4)
+        ax[1].scatter(x[pred==c], y[pred==c], label=name, s=4)
+
+    ax[0].set_title('Manual labels')
+    ax[1].set_title('Predicted labels')
+    plt.legend(bbox_to_anchor=(1,0), loc='lower left')
+
     return ax

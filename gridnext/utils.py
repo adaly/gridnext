@@ -56,6 +56,38 @@ def all_fgd_predictions(dataloader, model, f_only=False):
 
 	return true_vals, pred_vals, pred_smax
 
+# Outputs flattened list of model predictions for all nodes in a graph dataset
+def all_node_predictions(dataloader, model, f_only=False):
+    true_vals, pred_vals, pred_smax = [], [], []
+    
+    # GPU support
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()
+    
+    for batch in dataloader:
+        batch = batch.to(device)
+        
+        with torch.no_grad():
+            if not f_only:
+                outputs = model(batch)
+            else:
+                outputs = batch.x
+            outputs = outputs.cpu()
+            labels = batch.y.cpu()
+            y_true = labels.data.numpy()
+            y_pred = torch.argmax(outputs, axis=1).data.numpy()
+            y_smax = F.softmax(outputs, dim=1).data.numpy()
+            
+            true_vals.append(y_true)
+            pred_vals.append(y_pred)
+            pred_smax.append(y_smax)
+    
+    true_vals = np.concatenate(true_vals)
+    pred_vals = np.concatenate(pred_vals)
+    pred_smax = np.concatenate(pred_smax)
+    
+    return true_vals, pred_vals, pred_smax
 
 ############### Visium and Splotch Helper functions ###############
 

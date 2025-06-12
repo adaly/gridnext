@@ -207,3 +207,67 @@ def train_gridwise(model, dataloaders, criterion, optimizer, num_epochs=10, outf
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model, val_history, train_history
+
+# Training loop for graph registration
+def train_graphwise(model, dataloaders, criterion, optimizer, num_epochs=10, outfile=None, display=False):
+    since = time.time()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+    
+    train_history, val_history = [],[]
+    best_loss = np.inf
+    best_model_wts = copy.deepcopy(model.state_dict())
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch, num_epochs - 1), flush=True)
+        print('-' * 10, flush=True)
+    
+        for phase in ['train', 'val']:
+            if phase == 'train':
+                model.train()  # Set model to training mode
+            else:
+                model.eval()   # Set model to evaluate mode
+    
+            running_loss = 0.0
+            running_correct = 0
+            running_nodes = 0
+            
+            for batch_ind, batch in enumerate(dataloaders[phase]):
+                batch = batch.to(device)
+    
+                # Only bother with gradient tape in training pass
+                with torch.set_grad_enabled(phase=='train'):
+                    out = model(batch)
+                    loss = criterion(out, batch.y)
+                    _, preds = torch.max(out, 1)
+    
+                    if phase=='train':
+                        loss.backward()
+                        optimizer.step()
+                        optimizer.zero_grad()
+    
+                # statistics
+                running_loss += loss.item() * batch.num_graphs
+                running_correct += torch.sum(preds == batch.y)
+                running_nodes += batch.num_nodes
+    
+            epoch_loss = running_loss / len(dataloaders[phase].dataset)
+            epoch_acc = running_correct.double() / running_nodes
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(phase, epoch_loss, epoch_acc), flush=True)
+    
+            if phase == 'val':
+                val_history.append(epoch_loss)
+            else:
+                train_history.append(epoch_loss)
+                # Save best version of model
+                if epoch_loss < best_loss:
+                    best_loss = epoch_loss
+                    best_model_wts = copy.deepcopy(model.state_dict())
+                    if outfile is not None:
+                        torch.save(model.state_dict(), outfile)
+                        
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60), flush=True)
+    print('Best val loss: {:4f}'.format(best_loss), flush=True)
+    
+    model.load_state_dict(best_model_wts)
+    return model, val_history, train_history

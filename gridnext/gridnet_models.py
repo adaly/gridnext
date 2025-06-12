@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import numpy as np
 
@@ -234,3 +235,84 @@ class GridNetHexMM(GridNetHexOddr):
 
         return torch.cat((ppg_count, ppg_image), dim=1)
 
+
+#############################################################################
+#      Graph convolution-based GridNet models using torch_geometric         #
+#############################################################################
+
+from torch_geometric.nn import GCNConv
+from torch_geometric.nn.norm import BatchNorm
+
+# GCN-based GridNet model; replaces Conv2d with edge-weighted GCN to handle irregularly-spaced data
+# - Currently supports only 1D, unimodal data (e.g., counts, extracted image features)
+class GridNetGraph(nn.Module):
+    def __init__(self, node_classifier, n_classes, f_dim=None, use_bn=True, tau_init=100.0):
+        '''
+        Parameters:
+        ----------
+        node_classifier: torch.nn.Module
+            node classifier operating on Data.x attribute, outputting tensors of shape (f_dim,)
+        n_classes: int
+            number of classes in final classification layer
+        f_dim: int
+            output dimension of node_classifier; defaults to n_classes
+        use_bn: bool
+            whether to apply batch correction in GCN
+        tau_init: float
+            tunable scaling applied to edge weight
+            default value of 100 assumes edge weight is in um^-1; weight of 1 to neighbors 100um apart
+        '''
+        super().__init__()
+        
+        if f_dim is None:
+            f_dim = n_classes
+        self.f_dim = f_dim
+
+        self.node_classifier = node_classifier
+        self.corrector = GCN(f_dim, n_classes, use_bn=use_bn, tau_init=tau_init)
+
+    # TODO: implement checkpointing via atonce_node_limit if batch is too large to pass to node_classifier (see GridNet)
+    def node_predictions(self, graph):
+        return self.node_classifier(graph.x)
+    
+    def forward(self, graph):
+        # Apply patch-level predictions
+        graph.x = self.node_predictions(graph)
+
+        # Apply graph-level correction
+        corrected = self.corrector(graph)
+        return corrected
+
+class GCN(nn.Module):
+    def __init__(self, f_dim, n_classes, use_bn=True, tau_init=100.0):
+        super().__init__()
+        self.use_bn = use_bn
+        # Trainable parameter controlling effect of edge weights (physical distances)
+        self.tau = nn.Parameter(torch.tensor(tau_init, dtype=torch.float))
+        
+        self.conv1 = GCNConv(f_dim, 32)
+        self.conv2 = GCNConv(32, 32)
+        self.norm1 = BatchNorm(32)
+        self.conv3 = GCNConv(32, 32)
+        self.conv4 = GCNConv(32, 32)
+        self.norm2 = BatchNorm(32)
+        self.conv5 = GCNConv(32, n_classes)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        edge_wt = self.tau / data.edge_attr.squeeze()
+        
+        x = self.conv1(x, edge_index, edge_wt)
+        x = self.conv2(x, edge_index, edge_wt)
+        if self.use_bn:
+            x = self.norm1(x)
+        x = F.relu(x)
+        
+        x = self.conv3(x, edge_index, edge_wt)
+        x = self.conv4(x, edge_index, edge_wt)
+        if self.use_bn:
+            x = self.norm2(x)
+        x = F.relu(x)
+        
+        x = self.conv5(x, edge_index, edge_wt)
+        return x
