@@ -58,7 +58,7 @@ def preprocess_scbert(adata, target_depth=1e4, counts_layer=None, min_genes=None
 
 	genes_shared = adata.var.index.intersection(ref)
 	inds_shared = [ref.index(g) for g in genes_shared]
-	counts[:, inds_shared] = adata.X[:, inds_shared]
+	counts[:, inds_shared] = adata[:, genes_shared].X
 
 	new = ad.AnnData(X=counts.tocsr(), obs=adata.obs)
 	new.var_names = ref
